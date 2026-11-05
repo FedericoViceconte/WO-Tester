@@ -10,6 +10,7 @@ namespace WOTester {
   static int count;
   static void Check(bool condition,string message){count++;if(!condition)throw new Exception("FAIL: "+message);}
   [STAThread] public static int Main(string[] args) {
+   if(args.Length>0&&args[0]=="--script-fail"){Console.WriteLine("SCRIPT ERROR: fixture");Console.Out.Flush();Thread.Sleep(10000);return 0;}
    if(args.Length>0&&args[0]=="--sleep"){Thread.Sleep(10000);return 0;}
    if(args.Length>0&&args[0]=="--echo"){Console.Write(Convert.ToBase64String(Encoding.UTF8.GetBytes(args[1])));return 0;}
    if(args.Length>0&&args[0]=="--profile"){Console.Write(Environment.GetEnvironmentVariable("APPDATA"));return 0;}
@@ -36,6 +37,9 @@ namespace WOTester {
      var p=Runner.Execute(exe,"--echo "+Runner.Quote(value),root,null,5,CancellationToken.None);
      Check(p.Exit==0&&p.Text.Trim()==Convert.ToBase64String(Encoding.UTF8.GetBytes(value)),"Windows argument round trip");
     }
+    var broken=Runner.Execute(exe,"--script-fail",root,null,8,CancellationToken.None);
+    Check(Runner.Classify(broken)=="FAIL"&&broken.Seconds<5,"script exception closes broken test promptly");
+    Check(Runner.Classify(new ProcessOutcome{Timeout=true,Text="SCRIPT ERROR: fixture"})=="FAIL","script failure retained even if time limit expires");
     string profile=Path.Combine(root,"isolated",".godot","test-user");
     var child=Runner.Execute(exe,"--profile",root,profile,5,CancellationToken.None);
     Check(child.Text.Trim()==profile,"child profile isolation");

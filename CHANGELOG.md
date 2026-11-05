@@ -9,8 +9,9 @@ Primera versión de WO Tester para Windows.
 - Validación JSON y de recursos; simulación de mapas, disparos y una partida prolongada.
 - Aceleración por lotes de pasos originales y pruebas nativas a velocidad normal.
 - Ejecución con gráficos de los escenarios que necesitan verificar píxeles o puntero.
+- Preparación de las carpetas de salida que requieren las pruebas nativas.
 - Perfiles por escenario, cancelación, límites de tiempo y registros con reducción de exposición de tokens.
 - Informes HTML, JSON, CSV y Markdown; comparación de contenido entre revisiones.
-- Compilación reproducible sin descargas de dependencias y 38 comprobaciones internas.
+- Compilación reproducible sin descargas de dependencias y 40 comprobaciones internas.
 
 La integración inicial se verificó con el proyecto editable WO Definitive versión 112 y Godot 4.7.2. Los resultados del juego se conservan en el historial local del usuario; no se incluyen datos personales en el repositorio.

@@ -29,7 +29,7 @@ Requisitos: Windows 10/11 con .NET Framework 4.8, el proyecto editable de WO Def
 | Pruebas nativas | Descubre y ejecuta las escenas tests/*_test.tscn del juego. |
 | Evidencia | Registros por escenario; capturas de mapas cuando se activa el modo visible. |
 
-**Completa** ejecuta todas las capas. **Rápida** ejecuta datos, catálogo, mapas y una selección de pruebas críticas. **Repetir fallos anteriores** selecciona los escenarios nativos que no aprobaron; vuelve a comprobar datos y escenarios comunes.
+**Completa** ejecuta todas las capas. **Rápida** ejecuta datos, catálogo, mapas y una selección de pruebas críticas. **Repetir fallos anteriores** selecciona los escenarios nativos con errores o bloqueos; vuelve a comprobar datos y escenarios comunes.
 
 Los mapas, armas y escenas nuevas se descubren en cada ejecución. Las mecánicas nuevas requieren reglas o escenas de prueba propias. Los informes muestran qué cambió desde la revisión anterior.
 

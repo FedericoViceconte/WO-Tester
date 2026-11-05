@@ -1,10 +1,4 @@
-* text=auto
-*.cs text eol=lf
-*.xaml text eol=lf
-*.gd text eol=lf
-*.md text eol=lf
-*.yml text eol=lf
-*.ps1 text eol=lf
-*.svg text eol=lf
+# Preserve UTF-8 source files and native Windows line endings.
+* -text
 *.png binary
 *.ico binary

@@ -10,7 +10,7 @@ Guardá la configuración. El panel muestra los mapas, definiciones de armas, ma
 ## Revisar
 - **Completa:** datos, catálogo, mapas, disparos, estabilidad y todas las escenas nativas.
 - **Rápida:** datos, catálogo, mapas y escenarios críticos.
-- **Repetir fallos anteriores:** repite las escenas nativas que no aprobaron y las comprobaciones comunes.
+- **Repetir fallos anteriores:** repite las escenas nativas con errores o bloqueos y las comprobaciones comunes.
 
 Elegí 1×, 2×, 5× o 10×. La aceleración es del adaptador; las escenas nativas se prueban a 1×. Podés detener la revisión: se cierra el proceso activo y se guarda lo obtenido.
 

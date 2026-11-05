@@ -27,6 +27,7 @@ namespace WOTester {
     Check(Runner.Classify(new ProcessOutcome{Exit=0,Timeout=true,Text=""})=="BLOCKED","timeouts never pass");
     Check(Runner.Classify(new ProcessOutcome{Exit=0,Cancelled=true,Text=""})=="CANCELLED","cancellation never passes");
     Check(Runner.Classify(new ProcessOutcome{Exit=0,Text="AUDIT: 10 checks, 2 failures"})=="FAIL","positive failure counter");
+    Check(Runner.Classify(new ProcessOutcome{Exit=0,Text="WARNING: Epic friends query failed (result 6); retrying with backoff.\nQUEUE_MODES: 5 checks, 0 failures"})=="PASS","expected service warning is not a failure");
     string secret="access_token=very-secret authorization: Bearer eyJabc.eyJxyz.signature";
     Check(!Runner.Redact(secret).Contains("very-secret"),"credentials redacted");
     Check(!Runner.Redact(secret).Contains("eyJabc"),"JWT redacted");

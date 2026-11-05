@@ -100,7 +100,7 @@ namespace WOTester {
      report.State="BLOCKED";return Finish(clock);
     }
     var native=inventory.Tests.Where(t=>options.Mode!="quick" || Quick.Contains(Path.GetFileNameWithoutExtension(t.Scene))).ToList();
-    if(options.Mode=="failed" && previous!=null)native=native.Where(t=>previous.Results.Any(r=>r.Id==t.Id && r.Status!="PASS")).ToList();
+    if(options.Mode=="failed" && previous!=null)native=native.Where(t=>previous.Results.Any(r=>r.Id==t.Id && (r.Status=="FAIL" || r.Status=="BLOCKED"))).ToList();
     int total=inventory.JsonFiles.Count+native.Count+4;int done=0;
     foreach(var file in inventory.JsonFiles) {
      if(token.IsCancellationRequested)break;
@@ -182,7 +182,18 @@ namespace WOTester {
     Add(new Result{Id="probe:"+phase,Name="Motor de prueba · "+phase,Category="Entorno",Status=p.Cancelled?"CANCELLED":Classify(p)=="FAIL"?"FAIL":p.Timeout||!complete?"BLOCKED":Classify(p),Severity="alta",Seconds=p.Seconds,Log=Path.GetFileName(log),Detail=Summary(p,!complete?"El adaptador no completó su protocolo.":""),Suggestion="Revisá el registro. Si el juego cambió su estructura, actualizá el adaptador.",Reproduce="Fase "+phase+", semilla "+options.Seed});
    }
   }
+  public static void PrepareOutputs(string project,string source) {
+   string cache=Path.Combine(project,".godot");
+   foreach(Match match in Regex.Matches(source,@"res://(\.godot/[A-Za-z0-9_/\-]+/)")){
+    string path=Path.GetFullPath(Path.Combine(project,match.Groups[1].Value.Replace('/','\\')));
+    if(Scanner.Inside(cache,path))Directory.CreateDirectory(path);
+   }
+  }
   void RunNative(TestCase test) {
+   string script=Path.ChangeExtension(Path.Combine(inventory.Project,test.Scene),".gd");
+   var reference=Regex.Match(File.ReadAllText(Path.Combine(inventory.Project,test.Scene)),@"type=""Script"" path=""res://([^""]+)""");
+   if(reference.Success)script=Path.GetFullPath(Path.Combine(inventory.Project,reference.Groups[1].Value.Replace('/','\\')));
+   if(Scanner.Inside(inventory.Project,script)&&File.Exists(script))PrepareOutputs(inventory.Project,File.ReadAllText(script,Encoding.UTF8));
    string log=Path.Combine(report.Folder,Path.GetFileNameWithoutExtension(test.Scene)+".log");
    string args=(test.NeedsRender?"--position 40,40 ":"--headless ")+"--resolution 1280x720 --path "+Quote(inventory.Project)+" "+Quote("res://"+test.Scene)+" --audio-driver Dummy --log-file "+Quote(log);
    var p=Execute(options.Godot,args,inventory.Project,ProfileFor(Path.GetFileNameWithoutExtension(test.Scene),test.Guard),options.TimeoutSeconds,token);

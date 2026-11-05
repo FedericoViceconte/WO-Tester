@@ -71,6 +71,10 @@ namespace WOTester {
     File.WriteAllText(bad,"[{\"type\":\"same\"},{\"type\":\"same\"}]");
     Check(Runner.ValidateJson(root,bad).Status=="FAIL","duplicate IDs caught");
     Check(!Scanner.Inside(root,root+"-other\\asset.png"),"path prefix collision rejected");
+    Runner.PrepareOutputs(root,"save_png(\"res://.godot/fixture/nested/image.png\")");
+    Check(Directory.Exists(Path.Combine(root,".godot","fixture","nested")),"native output prerequisites prepared");
+    Runner.PrepareOutputs(root,"res://.godot/../../"+Path.GetFileName(root)+"-escaped/");
+    Check(!Directory.Exists(root+"-escaped"),"output prerequisites cannot traverse outside cache");
     var report=new Report{Folder=Path.Combine(root,"report"),Id="fixture",GameVersion="fixture",State="COMPLETED",StartedUtc=DateTime.UtcNow.ToString("o")};
     report.Results.Add(new Result{Id="fixture",Name="<script>alert(1)</script>",Detail="<img onerror=alert(1)>",Status="FAIL",Category="fixture",Suggestion="=HYPERLINK(\"bad\")",Log="evidence.log",Checks=2});
     Reports.Save(report);

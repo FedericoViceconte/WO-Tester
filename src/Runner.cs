@@ -61,7 +61,7 @@ namespace WOTester {
    string text=String.Join("\n",p.Text.Split('\n').Where(x=>!x.StartsWith("WO_TESTER_")));
    bool leak=Regex.IsMatch(text,@"(?im)^\s*ERROR: \d+ resources? still in use at exit|ObjectDB instances were leaked");
    text=Regex.Replace(text,@"(?im)^\s*ERROR: \d+ resources? still in use at exit.*$","");
-   if(Regex.IsMatch(text,@"(?im)^\s*(?:SCRIPT ERROR|ERROR:|USER ERROR:)|(?:^|[\s\[])(?:FAIL|FAILED)(?:[\s\]]|$)|\b[1-9]\d* failures\b"))return "FAIL";
+   if(Regex.IsMatch(text,@"(?m)^\s*(?:SCRIPT ERROR|ERROR:|USER ERROR:)|(?:^|\s)(?:FAIL|FAILED)\s*$|^\s*\[(?:FAIL|FAILED)\]|\b[1-9]\d* failures\b"))return "FAIL";
    foreach(string line in text.Split('\n')){
     int brace=line.IndexOf('{');if(brace<0)continue;
     try{var obj=Product.Json().DeserializeObject(line.Substring(brace)) as Dictionary<string,object>;if(obj==null)continue;

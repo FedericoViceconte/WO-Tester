@@ -169,6 +169,7 @@ namespace WOTester {
     Get<ComboBox>("ModeBox").IsEnabled=false;Get<ComboBox>("SpeedBox").IsEnabled=false;Get<Button>("SaveSettings").IsEnabled=false;
     cancellation=new CancellationTokenSource();clock=Stopwatch.StartNew();timer.Start();
     var runner=new Runner();
+    runner.OnStarted=r=>Window.Dispatcher.Invoke(new Action(()=>current=r));
     runner.OnResult=r=>Window.Dispatcher.Invoke(new Action(()=>{results.Add(r);RefreshCounters();}));
     runner.OnProgress=(t,d,n)=>Window.Dispatcher.Invoke(new Action(()=>{Text("ProgressCaption",t);Get<ProgressBar>("RunProgress").Value=n==0?0:Math.Min(98,100.0*d/n);}));
     current=await Task.Run(()=>runner.Run(options,cancellation.Token));

@@ -11,7 +11,7 @@ namespace WOTester {
   public static string Home = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "WO Tester");
   public static JavaScriptSerializer Json() { return new JavaScriptSerializer { MaxJsonLength = 32 * 1024 * 1024, RecursionLimit = 128 }; }
   public static T Read<T>(string path) { return Json().Deserialize<T>(File.ReadAllText(path, Encoding.UTF8)); }
-  public static void Write(string path, object value) { Directory.CreateDirectory(Path.GetDirectoryName(path)); string temp = path + ".tmp"; File.WriteAllText(temp, Json().Serialize(value), new UTF8Encoding(false)); if(File.Exists(path)) File.Delete(path); File.Move(temp,path); }
+  public static void Write(string path, object value) { Directory.CreateDirectory(Path.GetDirectoryName(path)); string temp = path + ".tmp"; File.WriteAllText(temp, Json().Serialize(value), new UTF8Encoding(false)); if(File.Exists(path)) File.Replace(temp,path,null); else File.Move(temp,path); }
   public static string StatusLabel(string s) { switch(s) { case "PASS": return "CORRECTO"; case "FAIL": return "ERROR"; case "BLOCKED": return "BLOQUEADA"; case "REVIEW": return "REVISAR"; case "CANCELLED": return "CANCELADA"; default: return "PENDIENTE"; } }
  }
  public sealed class Options {

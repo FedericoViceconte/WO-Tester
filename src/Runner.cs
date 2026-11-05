@@ -11,7 +11,7 @@ using System.Threading;
 namespace WOTester {
  public sealed class ProcessOutcome { public int Exit; public bool Timeout; public bool Cancelled; public string Text; public double Seconds; }
  public sealed class Runner {
-  public Action<Result> OnResult; public Action<string,int,int> OnProgress;
+  public Action<Report> OnStarted; public Action<Result> OnResult; public Action<string,int,int> OnProgress;
   CancellationToken token; Report report; Options options; Inventory inventory;
   static readonly string[] Quick = {"startup_shutdown_test","terrain_integrity_test","practice_ammo_test","menu_bot_launch_test","network_payload_test","speed_mode_test","battle_controls_test","settings_rewrite_test"};
   public static string Quote(string value) {
@@ -85,6 +85,7 @@ namespace WOTester {
    } else report.Changes.Add("Primera revisión: se creó la referencia de contenido.");
    var clock=Stopwatch.StartNew();
    Product.Write(Path.Combine(folder,"report.json"),report);
+   if(OnStarted!=null)OnStarted(report);
    try {
     var version=Execute(options.Godot,"--version",project,null,10,token);
     report.GodotVersion=version.Text.Trim();

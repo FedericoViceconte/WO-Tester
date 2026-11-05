@@ -21,7 +21,7 @@ namespace WOTester {
    b.Append('\\',slashes*2);b.Append('"');return b.ToString();
   }
   public static ProcessOutcome Execute(string exe,string args,string cwd,string profile,int timeout,CancellationToken token) {
-   var watch=Stopwatch.StartNew();var output=new StringBuilder();var gate=new object();
+   var watch=Stopwatch.StartNew();var output=new StringBuilder();var gate=new object();int scriptFault=0;
    var start=new ProcessStartInfo(exe,args){WorkingDirectory=cwd,UseShellExecute=false,RedirectStandardOutput=true,RedirectStandardError=true,CreateNoWindow=true,StandardOutputEncoding=Encoding.UTF8,StandardErrorEncoding=Encoding.UTF8};
    if(!String.IsNullOrEmpty(profile)){
     Directory.CreateDirectory(profile);
@@ -30,11 +30,12 @@ namespace WOTester {
     start.EnvironmentVariables["WO_TESTER_ISOLATED"]="1";
    }
    using(var process=new Process {StartInfo=start}){
-    DataReceivedEventHandler handler=(s,e)=>{if(e.Data!=null)lock(gate){if(output.Length<12*1024*1024)output.AppendLine(e.Data);}};
+    DataReceivedEventHandler handler=(s,e)=>{if(e.Data!=null)lock(gate){if(e.Data.TrimStart().StartsWith("SCRIPT ERROR:"))Interlocked.Exchange(ref scriptFault,1);if(output.Length<12*1024*1024)output.AppendLine(e.Data);}};
     process.OutputDataReceived+=handler;process.ErrorDataReceived+=handler;
     process.Start();process.BeginOutputReadLine();process.BeginErrorReadLine();
     bool timed=false,cancelled=false;
     while(!process.WaitForExit(100)){
+     if(Volatile.Read(ref scriptFault)==1){try{process.Kill();}catch{}break;}
      if(token.IsCancellationRequested || watch.Elapsed.TotalSeconds>timeout){
       cancelled=token.IsCancellationRequested;timed=!cancelled;
       try{process.Kill();}catch{}
@@ -47,13 +48,14 @@ namespace WOTester {
    }
   }
   public static string Redact(string text) {
-   text=Regex.Replace(text,@"(?i)((?:access_token|refresh_token|id_token|authorization|client_secret|password)\s*[:=]\s*[""']?)[^\s,""'}]+","$1[REDACTADO]");
+   text=Regex.Replace(text,@"(?i)(authorization\s*[:=]\s*[""']?\s*(?:Bearer\s+)?)[^\s,""'}]+","$1[REDACTADO]");
+   text=Regex.Replace(text,@"(?i)((?:access[_-]?token|refresh[_-]?token|id[_-]?token|client[_-]?secret|password)\s*[:=]\s*[""']?)[^\s,""'}]+","$1[REDACTADO]");
    text=Regex.Replace(text,@"\beyJ[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+\b","[TOKEN REDACTADO]");
    return text;
   }
   public static string Classify(ProcessOutcome p) {
    if(p.Cancelled)return "CANCELLED";
-   if(p.Timeout)return "BLOCKED";
+   if(p.Timeout)return Regex.IsMatch(p.Text,@"(?im)^\s*SCRIPT ERROR:")?"FAIL":"BLOCKED";
    if(p.Exit==2)return "BLOCKED";
    if(p.Exit!=0)return "FAIL";
    string text=String.Join("\n",p.Text.Split('\n').Where(x=>!x.StartsWith("WO_TESTER_")));
@@ -176,7 +178,7 @@ namespace WOTester {
    }
    bool complete=p.Text.Contains("WO_TESTER_DONE ");
    if(Classify(p)!="PASS" || !complete || count==0) {
-    Add(new Result{Id="probe:"+phase,Name="Motor de prueba · "+phase,Category="Entorno",Status=p.Cancelled?"CANCELLED":p.Timeout?"BLOCKED":!complete?"BLOCKED":Classify(p),Severity="alta",Seconds=p.Seconds,Log=Path.GetFileName(log),Detail=Summary(p,!complete?"El adaptador no completó su protocolo.":""),Suggestion="Revisá el registro. Si el juego cambió su estructura, actualizá el adaptador.",Reproduce="Fase "+phase+", semilla "+options.Seed});
+    Add(new Result{Id="probe:"+phase,Name="Motor de prueba · "+phase,Category="Entorno",Status=p.Cancelled?"CANCELLED":Classify(p)=="FAIL"?"FAIL":p.Timeout||!complete?"BLOCKED":Classify(p),Severity="alta",Seconds=p.Seconds,Log=Path.GetFileName(log),Detail=Summary(p,!complete?"El adaptador no completó su protocolo.":""),Suggestion="Revisá el registro. Si el juego cambió su estructura, actualizá el adaptador.",Reproduce="Fase "+phase+", semilla "+options.Seed});
    }
   }
   void RunNative(TestCase test) {
@@ -192,10 +194,10 @@ namespace WOTester {
   }
   static string Summary(ProcessOutcome p,string extra) {
    if(p.Cancelled)return "Cancelada por el usuario.";
-   if(p.Timeout)return "Se agotó el tiempo máximo. El proceso fue cerrado y el registro se conservó.";
+   string timeoutNote=p.Timeout?"Se agotó el tiempo máximo. El proceso fue cerrado y el registro se conservó.\n":"";
    var lines=p.Text.Split('\n').Where(x=>!x.StartsWith("WO_TESTER_") && Regex.IsMatch(x,@"(?i)SCRIPT ERROR|ERROR:|\bFAIL\b|\bFAILED\b|\bchecks\b|\bPASS\b|\.gd:\d+")).Take(14);
    string text=String.Join("\n",lines).Trim();
-   return (extra.Length>0?extra+"\n":"")+(text.Length>0?text:"El proceso terminó con código "+p.Exit+".");
+   return timeoutNote+(extra.Length>0?extra+"\n":"")+(text.Length>0?text:"El proceso terminó con código "+p.Exit+".");
   }
  }
 }

@@ -1,0 +1,19 @@
+# Generated executables and distributions
+*.exe
+*.pdb
+*.zip
+*.pck
+*.bundle
+dist/
+bin/
+obj/
+.local/
+# Personal state and secrets
+*.local.json
+*.local.cfg
+*.key
+*.pem
+.env
+.vs/
+__pycache__/
+*.pyc

@@ -1,0 +1,29 @@
+name: Windows build and tests
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  verify:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+      - name: Build and test WO Tester
+        shell: pwsh
+        run: ./tools/build.ps1 -Test
+      - name: Package portable application
+        shell: pwsh
+        run: ./tools/package.ps1
+      - name: Preserve exact source history
+        shell: pwsh
+        run: git bundle create dist/WO-Tester-source.bundle --all
+      - uses: actions/upload-artifact@v7
+        with:
+          name: WO-Tester-Windows
+          path: dist/*
+          retention-days: 14

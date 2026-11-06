@@ -1,0 +1,154 @@
+name: One-time public preparation
+on:
+  workflow_dispatch:
+    inputs:
+      phase:
+        description: Install reviewed history, then finish publication preparation
+        required: true
+        type: choice
+        options:
+          - install
+          - finish
+      bundle_sha256:
+        description: SHA-256 of the locally reviewed history bundle
+        required: true
+        type: string
+permissions:
+  contents: write
+  actions: write
+jobs:
+  reviewed_preparation:
+    if: github.repository == 'FedericoViceconte/WO-Tester'
+    runs-on: windows-latest
+    env:
+      GH_TOKEN: ${{ github.token }}
+      REVIEW_PHASE: ${{ inputs.phase }}
+      REVIEW_BUNDLE_SHA256: ${{ inputs.bundle_sha256 }}
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: main
+          fetch-depth: 0
+      - name: Load the reviewed private bundle
+        shell: python
+        run: |
+          import os,subprocess,pathlib,json,re,hashlib
+          root=pathlib.Path(os.environ["GITHUB_WORKSPACE"]);repo=os.environ["GITHUB_REPOSITORY"]
+          assert repo=="FedericoViceconte/WO-Tester"
+          def cmd(args):
+              p=subprocess.run(args,cwd=root,capture_output=True,text=True)
+              if p.returncode:raise RuntimeError("A scoped review operation failed: "+args[0]+" "+args[1])
+              return p.stdout.strip()
+          def api(path,method="GET"):
+              out=cmd(["gh","api","--method",method,path]);return json.loads(out) if out else {}
+          meta=api("repos/"+repo)
+          assert meta["private"],"This one-time review only runs while the repository is private."
+          branches=api("repos/"+repo+"/branches?per_page=100")
+          assert [b["name"] for b in branches]==["main"],"Review additional branches before proceeding."
+          assert meta["forks_count"]==0,"Review existing forks before proceeding."
+          digest=os.environ["REVIEW_BUNDLE_SHA256"].lower()
+          assert re.fullmatch("[0-9a-f]{64}",digest)
+          folder=pathlib.Path(os.environ["RUNNER_TEMP"])/"wo-public-review";folder.mkdir(exist_ok=True)
+          cmd(["gh","release","download","v1.0.0","--pattern","public-ready-history.bundle","--dir",str(folder),"--clobber"])
+          bundle=folder/"public-ready-history.bundle"
+          assert hashlib.sha256(bundle.read_bytes()).hexdigest()==digest,"Prepared history checksum mismatch."
+          cmd(["git","fetch",str(bundle),"+refs/heads/main:refs/review/final","+refs/heads/public-candidate:refs/review/candidate"])
+          final=cmd(["git","rev-parse","refs/review/final"]);candidate=cmd(["git","rev-parse","refs/review/candidate"])
+          safe=set(cmd(["git","rev-list","refs/review/final"]).splitlines())
+          assert candidate in safe
+          for oid in safe:
+              raw=cmd(["git","cat-file","commit",oid]).split("\n\n",1)[0]
+              for row in raw.splitlines():
+                  if row.startswith(("author ","committer ")):
+                      email=re.search("<([^>]+)>",row).group(1)
+                      assert email.endswith("@users.noreply.github.com") or email=="noreply@github.com"
+          assert cmd(["git","ls-tree",final,".github/workflows/prepare-public.yml"])==""
+          assert cmd(["git","ls-tree",candidate,".github/workflows/prepare-public.yml"])!=""
+          main_ref=api("repos/"+repo+"/git/ref/heads/main")["object"]["sha"]
+          tag_ref=api("repos/"+repo+"/git/ref/tags/v1.0.0")["object"]["sha"]
+          mode=os.environ["REVIEW_PHASE"]
+          if mode=="install":
+              assert cmd(["git","rev-parse","HEAD"])==main_ref,"Repository changed during review."
+              cmd(["git","push","origin","--force-with-lease=refs/heads/main:"+main_ref,
+                   "--force-with-lease=refs/tags/v1.0.0:"+tag_ref,
+                   "refs/review/candidate:refs/heads/main","refs/review/candidate:refs/tags/v1.0.0"])
+              print("Reviewed history installed privately. Run finish to verify packages and complete cleanup.")
+          else:
+              assert main_ref in (candidate,final) and tag_ref in (candidate,final),"Repository changed during review."
+              assert os.environ["GITHUB_SHA"] in safe,"Finish must start from reviewed history."
+              cmd(["git","checkout","--detach",final])
+              print("Reviewed source checked out. Application verification follows.")
+          with open(os.environ["GITHUB_ENV"],"a",encoding="utf-8") as stream:
+              stream.write("REVIEW_FINAL="+final+"\nREVIEW_CANDIDATE="+candidate+"\nREVIEW_BUNDLE="+str(bundle)+"\n")
+      - name: Verify application
+        if: inputs.phase == 'finish'
+        shell: pwsh
+        run: ./tools/build.ps1 -Test
+      - name: Package reviewed application
+        if: inputs.phase == 'finish'
+        shell: pwsh
+        run: ./tools/package.ps1
+      - name: Complete scoped private cleanup
+        if: inputs.phase == 'finish'
+        shell: python
+        run: |
+          import os,pathlib,subprocess,json,time
+          root=pathlib.Path(os.environ["GITHUB_WORKSPACE"]);repo=os.environ["GITHUB_REPOSITORY"]
+          assert repo=="FedericoViceconte/WO-Tester"
+          def cmd(args,allow=False):
+              p=subprocess.run(args,cwd=root,capture_output=True,text=True)
+              if p.returncode:
+                  if allow:return None
+                  raise RuntimeError("A scoped publication operation failed: "+args[0]+" "+args[1])
+              return p.stdout.strip()
+          def api(path,method="GET",allow=False):
+              out=cmd(["gh","api","--method",method,path],allow)
+              return json.loads(out) if out else (None if out is None else {})
+          assert api("repos/"+repo)["private"]
+          final=os.environ["REVIEW_FINAL"];candidate=os.environ["REVIEW_CANDIDATE"]
+          main_ref=api("repos/"+repo+"/git/ref/heads/main")["object"]["sha"]
+          tag_ref=api("repos/"+repo+"/git/ref/tags/v1.0.0")["object"]["sha"]
+          assert main_ref in (candidate,final) and tag_ref in (candidate,final),"Repository changed during review."
+          if main_ref!=final or tag_ref!=final:
+              cmd(["git","push","origin","--force-with-lease=refs/heads/main:"+main_ref,
+                   "--force-with-lease=refs/tags/v1.0.0:"+tag_ref,
+                   "refs/review/final:refs/heads/main","refs/review/final:refs/tags/v1.0.0"])
+          notes=root/"dist"/"release-notes.md"
+          notes.write_text("WO Tester 1.0.0 para Windows.\n\nDescarga WO-Tester-Windows.zip, extraelo y abri WO Tester.exe.\n\nAplicacion independiente con revisiones completas y rapidas, simulacion acelerada, historial e informes exportables.\n\nRequisitos: .NET Framework 4.8, el proyecto editable de WO Definitive y su version de Godot. Online publico, nube y EAC requieren validacion especifica.\n\n40 comprobaciones internas aprobadas. El historial y la captura fueron revisados para publicacion. No se incluyen perfiles, credenciales ni recursos del juego.\n\nCodigo: "+final+"\nVerificacion: https://github.com/"+repo+"/actions/runs/"+os.environ["GITHUB_RUN_ID"]+"\n\nSHA256SUMS.txt y build-info.json permiten comprobar el paquete.\n",encoding="utf-8")
+          cmd(["gh","release","edit","v1.0.0","--target",final,"--notes-file",str(notes)])
+          cmd(["gh","release","upload","v1.0.0","dist/WO-Tester-Windows.zip","dist/SHA256SUMS.txt","dist/build-info.json","--clobber"])
+          safe=set(cmd(["git","rev-list","refs/review/final"]).splitlines())
+          current=int(os.environ["GITHUB_RUN_ID"]);runs=[];page=1
+          while True:
+              batch=api("repos/"+repo+"/actions/runs?per_page=100&page="+str(page))["workflow_runs"];runs+=batch
+              if len(batch)<100:break
+              page+=1
+          legacy=[r for r in runs if r["id"]!=current and r["head_sha"] not in safe]
+          allowed={".github/workflows/ci.yml",".github/workflows/prepare-public.yml"}
+          assert all(r["path"].split("@")[0] in allowed for r in legacy),"An unrelated workflow needs review."
+          for run in legacy:
+              path="repos/"+repo+"/actions/runs/"+str(run["id"])
+              if run["status"]!="completed":
+                  api(path+"/cancel","POST",True)
+                  for unused in range(30):
+                      state=api(path)
+                      if state["status"]=="completed":break
+                      time.sleep(2)
+                  else:raise RuntimeError("A previous run is still active. Retry after it completes.")
+              artifacts=api(path+"/artifacts?per_page=100")["artifacts"]
+              assert len(artifacts)<100
+              assert all(a["name"]=="WO-Tester-Windows" for a in artifacts),"An unrelated artifact needs review."
+              for artifact in artifacts:api("repos/"+repo+"/actions/artifacts/"+str(artifact["id"]),"DELETE")
+              api(path,"DELETE")
+          cmd(["gh","release","delete-asset","v1.0.0","public-ready-history.bundle","--yes"])
+          import shutil
+          shutil.copyfile(os.environ["REVIEW_BUNDLE"],root/"dist"/"WO-Tester-source.bundle")
+          notes.unlink()
+          print("Application verified; release refreshed; previous private run records removed:",len(legacy))
+          print("The temporary review workflow is absent from the final branch.")
+      - uses: actions/upload-artifact@v7
+        if: inputs.phase == 'finish'
+        with:
+          name: WO-Tester-public-reviewed
+          path: dist/*
+          retention-days: 14

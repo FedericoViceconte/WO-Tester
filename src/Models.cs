@@ -7,7 +7,7 @@ using System.Web.Script.Serialization;
 
 namespace WOTester {
  public static class Product {
-  public const string Version = "1.0.0";
+  public const string Version = "1.1.0";
   public static string Home = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "WO Tester");
   public static JavaScriptSerializer Json() { return new JavaScriptSerializer { MaxJsonLength = 32 * 1024 * 1024, RecursionLimit = 128 }; }
   public static T Read<T>(string path) { return Json().Deserialize<T>(File.ReadAllText(path, Encoding.UTF8)); }
@@ -17,13 +17,17 @@ namespace WOTester {
  public sealed class Options {
   public string Project {get;set;}
   public string Godot {get;set;}
+  public string Adb {get;set;}
+  public string Apk {get;set;}
+  public string AndroidPackage {get;set;}
+  public string AndroidSerial {get;set;}
   public string Mode {get;set;}
   public int Speed {get;set;}
   public int TimeoutSeconds {get;set;}
   public int Seed {get;set;}
   public bool AutoRun {get;set;}
   public bool Visible {get;set;}
-  public Options() { Mode="complete"; Speed=10; TimeoutSeconds=120; Seed=20261105; AutoRun=true; }
+  public Options() { Mode="complete"; Speed=10; TimeoutSeconds=120; Seed=20261105; AutoRun=true; AndroidPackage=AndroidRunner.GamePackage; }
   public static Options Load() { try { return Product.Read<Options>(Path.Combine(Product.Home,"settings.json")); } catch { return new Options(); } }
   public void Save() { Product.Write(Path.Combine(Product.Home,"settings.json"),this); }
  }
@@ -44,6 +48,7 @@ namespace WOTester {
   public string Id {get;set;} public string Name {get;set;} public string Category {get;set;}
   public string Status {get;set;} public string Severity {get;set;} public string Detail {get;set;}
   public string Suggestion {get;set;} public string Reproduce {get;set;} public string Log {get;set;}
+  public string Screenshot {get;set;}
   public double Seconds {get;set;} public int Checks {get;set;}
   public string Label { get { return Product.StatusLabel(Status); } }
   public string Duration { get { return Seconds.ToString("0.0")+" s"; } }
@@ -55,6 +60,7 @@ namespace WOTester {
   public string Project {get;set;} public string GameVersion {get;set;} public string Fingerprint {get;set;}
   public string Commit {get;set;} public bool Dirty {get;set;}
   public string GodotVersion {get;set;} public string Mode {get;set;} public int Speed {get;set;} public int Seed {get;set;}
+  public string AndroidPackage {get;set;} public string AndroidDevice {get;set;}
   public string State {get;set;} public double Seconds {get;set;}
   public Dictionary<string,string> Content {get;set;}
   public List<string> Changes {get;set;} public List<Result> Results {get;set;}
@@ -63,6 +69,7 @@ namespace WOTester {
   public int Failed { get { return Results.Count(x=>x.Status=="FAIL"); } }
   public int Pending { get { return Results.Count(x=>x.Status!="PASS" && x.Status!="FAIL"); } }
   public int CheckCount { get { return Results.Sum(x=>x.Checks); } }
+  public int ExitCode { get { return State=="CANCELLED"?2:Failed>0?1:State!="COMPLETED"||Results.Any(x=>x.Status=="BLOCKED")?2:0; } }
   public Report() { Schema="wo-tester.report/1";TesterVersion=Product.Version;Results=new List<Result>();Content=new Dictionary<string,string>();Changes=new List<string>(); }
  }
 }

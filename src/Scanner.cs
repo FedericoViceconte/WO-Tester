@@ -93,7 +93,10 @@ namespace WOTester {
   }
   public static string DetectProject() {
    string desktop=Environment.GetFolderPath(Environment.SpecialFolder.DesktopDirectory);
-   foreach(string p in new[]{Path.Combine(desktop,"wo-remake","VERSION-ACTUAL"),Path.Combine(desktop,"wo-definitive","VERSION-ACTUAL"),Path.Combine(desktop,"WO Definitive","VERSION-ACTUAL")})if(File.Exists(Path.Combine(p,"project.godot")))return p;
+   foreach(string name in new[]{"wo-definitive","wo-definitive-main","WO Definitive","wo-remake"}) {
+    string path=Path.Combine(desktop,name,"VERSION-ACTUAL");
+    if(File.Exists(Path.Combine(path,"project.godot")))return path;
+   }
    return "";
   }
   public static string DetectGodot() {

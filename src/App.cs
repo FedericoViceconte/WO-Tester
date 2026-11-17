@@ -20,8 +20,8 @@ using System.Runtime.InteropServices;
 [assembly:AssemblyDescription("Laboratorio independiente de pruebas para WO Definitive")]
 [assembly:AssemblyCompany("FRR Games")]
 [assembly:AssemblyProduct("WO Tester")]
-[assembly:AssemblyVersion("1.1.0.0")]
-[assembly:AssemblyFileVersion("1.1.0.0")]
+[assembly:AssemblyVersion("1.1.1.0")]
+[assembly:AssemblyFileVersion("1.1.1.0")]
 namespace WOTester {
  public static class Program {
   public static string[] Arguments;

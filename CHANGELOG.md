@@ -1,5 +1,10 @@
 # Cambios
 
+## 1.1.1
+
+- La revisión Android busca el marcador de inicio por la hora del teléfono aunque Logcat reciba miles de mensajes durante el arranque.
+- El informe indica cuándo la edición elegida de WO no está instalada.
+
 ## 1.1.0
 
 - Revisión de APK e instalaciones de WO para Android desde el panel de Windows y la CLI.

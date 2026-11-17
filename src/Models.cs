@@ -7,7 +7,7 @@ using System.Web.Script.Serialization;
 
 namespace WOTester {
  public static class Product {
-  public const string Version = "1.1.0";
+  public const string Version = "1.1.1";
   public static string Home = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "WO Tester");
   public static JavaScriptSerializer Json() { return new JavaScriptSerializer { MaxJsonLength = 32 * 1024 * 1024, RecursionLimit = 128 }; }
   public static T Read<T>(string path) { return Json().Deserialize<T>(File.ReadAllText(path, Encoding.UTF8)); }

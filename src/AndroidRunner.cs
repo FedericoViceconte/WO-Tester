@@ -114,6 +114,8 @@ namespace WOTester {
    }
    var installed=Device("shell","pm","path",package);
    SaveLog(installed.Text);
+   if(!installed.Cancelled&&!installed.Timeout&&installed.Exit==1&&String.IsNullOrWhiteSpace(installed.Text))
+    throw new IOException("El paquete "+package+" no está instalado. Elegí en Configuración la edición que tiene el dispositivo o seleccioná su APK.");
    Require(installed);
    if(!Regex.IsMatch(installed.Text,@"(?m)^package:/.+\.apk\s*$"))
     throw new IOException("El paquete "+package+" no está instalado para el usuario activo.");
@@ -132,9 +134,11 @@ namespace WOTester {
     .Select(x=>Path.Combine(x,"aapt.exe")).FirstOrDefault(File.Exists);
   }
 
-  string marker, initialPid;
+  string marker, logSince, initialPid;
   bool Launch() {
    Begin("launch","Inicio de WO en Android",2);
+   string deviceTime=Require(Device("shell","date","+%m-%d_%H:%M:%S")).Text.Trim();
+   logSince=LogcatStartTime(deviceTime);
    marker="wo-"+Guid.NewGuid().ToString("N");
    Require(Device("shell","log","-t","WOTester",marker));
    var launch=Device("shell","am","start","-W","-S","-a","android.intent.action.MAIN","-c","android.intent.category.LAUNCHER","-p",package);
@@ -163,7 +167,7 @@ namespace WOTester {
     if(!qa&&watch.Elapsed.TotalSeconds<seconds)Wait(250);
     else {
      string pid=CurrentPid();
-     var dump=Require(Device("logcat","-b","main","-b","system","-b","crash","-b","events","-d","-v","brief","-t","4000",
+     var dump=Require(Device("logcat","-b","main","-b","system","-b","crash","-b","events","-d","-v","brief","-T",logSince,
       "WOTester:I","Godot:V","godot:V","AndroidRuntime:E","am_proc_start:I","am_crash:I","am_anr:I","*:S"));
      var evidence=CollectLogs(dump.Text,marker,package,initialPid,pid);
      File.WriteAllText(log,Runner.Redact(String.Join(Environment.NewLine,evidence)),new UTF8Encoding(false));
@@ -195,6 +199,12 @@ namespace WOTester {
    var p=Device("shell","pidof",package);
    if(p.Exit==1&&String.IsNullOrWhiteSpace(p.Text)&&!p.Timeout&&!p.Cancelled)return "";
    return Require(p).Text.Trim();
+  }
+
+  public static string LogcatStartTime(string deviceTime) {
+   if(!Regex.IsMatch(deviceTime,@"\A[0-9]{2}-[0-9]{2}_[0-9]{2}:[0-9]{2}:[0-9]{2}\z"))
+    throw new IOException("ADB no devolvió la hora del dispositivo en el formato que requiere Logcat.");
+   return deviceTime.Replace('_',' ')+".000";
   }
 
   public static List<string> CollectLogs(string output,string marker,string package,params string[] knownPids) {

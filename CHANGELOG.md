@@ -1,5 +1,11 @@
 # Cambios
 
+## 1.2.0
+
+- Una sola edición Android jugable con pruebas integradas, instalada o actualizada antes de cada revisión.
+- Validación de datos, catálogo, mapas, disparos, estabilidad, interfaz táctil y escenas nativas desde el teléfono.
+- Perfil de QA independiente del progreso de juego.
+
 ## 1.1.1
 
 - La revisión Android busca el marcador de inicio por la hora del teléfono aunque Logcat reciba miles de mensajes durante el arranque.

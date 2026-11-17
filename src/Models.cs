@@ -7,7 +7,7 @@ using System.Web.Script.Serialization;
 
 namespace WOTester {
  public static class Product {
-  public const string Version = "1.1.1";
+  public const string Version = "1.2.0";
   public static string Home = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "WO Tester");
   public static JavaScriptSerializer Json() { return new JavaScriptSerializer { MaxJsonLength = 32 * 1024 * 1024, RecursionLimit = 128 }; }
   public static T Read<T>(string path) { return Json().Deserialize<T>(File.ReadAllText(path, Encoding.UTF8)); }
@@ -19,7 +19,6 @@ namespace WOTester {
   public string Godot {get;set;}
   public string Adb {get;set;}
   public string Apk {get;set;}
-  public string AndroidPackage {get;set;}
   public string AndroidSerial {get;set;}
   public string Mode {get;set;}
   public int Speed {get;set;}
@@ -27,7 +26,7 @@ namespace WOTester {
   public int Seed {get;set;}
   public bool AutoRun {get;set;}
   public bool Visible {get;set;}
-  public Options() { Mode="complete"; Speed=10; TimeoutSeconds=120; Seed=20261105; AutoRun=true; AndroidPackage=AndroidRunner.GamePackage; }
+  public Options() { Mode="complete"; Speed=10; TimeoutSeconds=120; Seed=20261105; AutoRun=true; }
   public static Options Load() { try { return Product.Read<Options>(Path.Combine(Product.Home,"settings.json")); } catch { return new Options(); } }
   public void Save() { Product.Write(Path.Combine(Product.Home,"settings.json"),this); }
  }

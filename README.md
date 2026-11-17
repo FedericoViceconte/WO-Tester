@@ -28,7 +28,7 @@ Requisitos: Windows 10/11 con .NET Framework 4.8, el proyecto editable de WO Def
 | Estabilidad | Partida de hasta 30.000 pasos con bots y semilla fija. |
 | Pruebas nativas | Descubre y ejecuta las escenas tests/*_test.tscn del juego. |
 | Evidencia | Registros por escenario; capturas de mapas cuando se activa el modo visible. |
-| Android | Instalación opcional del APK, arranque, errores de ejecución y captura de pantalla. El APK interno de QA ejecuta las pruebas de menús, mapas y controles táctiles del juego. |
+| Android | Instalación o actualización del APK integrado, datos, catálogo, mapas, armas, estabilidad y controles táctiles en el dispositivo. |
 
 **Completa** ejecuta todas las capas. **Rápida** ejecuta datos, catálogo, mapas y una selección de pruebas críticas. **Repetir fallos anteriores** selecciona los escenarios nativos con errores o bloqueos; vuelve a comprobar datos y escenarios comunes.
 
@@ -37,10 +37,10 @@ Los mapas, armas y escenas nuevas se descubren en cada ejecución. Las mecánica
 ## Probar Android desde Windows
 
 1. Conectá un teléfono con depuración USB autorizada o iniciá un emulador. Confirmá que aparezca como `device` en `adb devices -l`.
-2. En **Configuración → Android** indicá `adb.exe` si el SDK no se detecta solo. Elegí el paquete de WO. Si hay varios dispositivos conectados, ingresá la serie del que querés probar.
-3. Elegí **Revisión Android** en el panel y pulsá **Iniciar revisión**. Podés usar WO ya instalado o seleccionar el APK en Configuración. Para instalar desde el tester, el mismo SDK debe tener **Android SDK Build-Tools**.
+2. En **Configuración → Android** seleccioná el APK jugable de WO con pruebas integradas. Indicá `adb.exe` si el SDK no se detecta solo, y la serie si hay varios dispositivos. El SDK debe tener **Android SDK Build-Tools**.
+3. Elegí **Revisión Android** y pulsá **Iniciar revisión**. WO Tester instala o actualiza el APK seleccionado y ejecuta la revisión en el dispositivo.
 
-El modo Android funciona con WO Tester en Windows y puede ejecutarse con el APK sin el proyecto editable de Godot. Guarda el modelo, la versión Android, el paquete, la versión instalada y, si se seleccionó un APK, su SHA-256. El arranque del juego deja una captura para inspección cuando WO está en primer plano. El QA interno usa la escena `mobile_android_smoke.tscn` de WO y su resumen `ANDROID_QA_DONE`. La [guía de uso](GUIA-DE-USO.md#revisión-android) indica los paquetes disponibles y cómo ejecutar cada uno.
+El modo Android usa el APK sin requerir el proyecto editable en la PC que hace la revisión. Guarda el modelo, la versión Android, el paquete, la versión instalada y el SHA-256 del APK. El informe indica el resultado de las escenas nativas y cuáles requieren una adaptación específica. La [guía de uso](GUIA-DE-USO.md#revisión-android) incluye el comando para generar el APK integrado.
 
 ## Velocidad
 
@@ -80,7 +80,7 @@ Para automatizar una revisión:
 
 ```powershell
 .\wo-tester-cli.exe --cli --project "C:\Juego\VERSION-ACTUAL" --godot "C:\Godot\Godot_console.exe" --mode complete --speed 10
-.\wo-tester-cli.exe --cli --mode android --adb "C:\Android\Sdk\platform-tools\adb.exe" --apk "C:\Juego\WO-Definitive-Edition-Android-Pruebas.apk" --package com.frrentertainment.wodefinitive.test
+.\wo-tester-cli.exe --cli --mode android --adb "C:\Android\Sdk\platform-tools\adb.exe" --apk "C:\Juego\WO-Definitive-Edition-Android-Pruebas.apk"
 ```
 
 La CLI devuelve 0 si terminó sin errores ni bloqueos, 1 si encontró errores y 2 si se canceló o quedó bloqueada sin errores confirmados. El informe también indica la cobertura pendiente.
@@ -89,7 +89,7 @@ La CLI devuelve 0 si terminó sin errores ni bloqueos, 1 si encontró errores y 
 
 Cada proceso recibe APPDATA y LOCALAPPDATA propios. Las escenas nativas pueden escribir sus propios archivos de prueba en la caché .godot del proyecto, tal como fueron diseñadas. No se alteran datos de catálogo ni se corrigen archivos automáticamente.
 
-En Android se reinicia únicamente el paquete seleccionado y se conserva su almacenamiento. Un APK elegido se instala con `adb install -r`. Para usar un perfil de prueba separado, elegí el APK con paquete `.test` o `.qa`.
+Android usa el paquete de pruebas `.test` y lo actualiza mediante `adb install -r`. Cada escenario automatizado tiene su propio directorio de datos, separado del progreso que usa el ícono normal del juego.
 
 Los registros reducen la exposición de tokens conocidos; pueden contener rutas y detalles del entorno. Revisalos antes de compartirlos. El tester ejecuta código del proyecto seleccionado: usalo con proyectos de confianza.
 

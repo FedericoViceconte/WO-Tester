@@ -20,8 +20,8 @@ using System.Runtime.InteropServices;
 [assembly:AssemblyDescription("Laboratorio independiente de pruebas para WO Definitive")]
 [assembly:AssemblyCompany("FRR Games")]
 [assembly:AssemblyProduct("WO Tester")]
-[assembly:AssemblyVersion("1.1.1.0")]
-[assembly:AssemblyFileVersion("1.1.1.0")]
+[assembly:AssemblyVersion("1.2.0.0")]
+[assembly:AssemblyFileVersion("1.2.0.0")]
 namespace WOTester {
  public static class Program {
   public static string[] Arguments;
@@ -40,8 +40,7 @@ namespace WOTester {
     options.Godot=Arg("--godot",String.IsNullOrEmpty(options.Godot)?Scanner.DetectGodot():options.Godot);
     options.Mode=Arg("--mode",options.Mode);options.Speed=Int32.Parse(Arg("--speed",options.Speed.ToString()));
     options.Adb=Arg("--adb",options.Adb);
-    options.Apk=Arg("--apk",args.Contains("--cli")?"":options.Apk);
-    options.AndroidPackage=Arg("--package",options.AndroidPackage);
+    options.Apk=Arg("--apk",options.Apk);
     options.AndroidSerial=Arg("--serial",options.AndroidSerial);
     options.TimeoutSeconds=Int32.Parse(Arg("--timeout",options.TimeoutSeconds.ToString()));
     if(options.TimeoutSeconds<10||options.TimeoutSeconds>1800)throw new ArgumentException("El tiempo máximo debe estar entre 10 y 1800 segundos.");
@@ -50,7 +49,7 @@ namespace WOTester {
      Console.OutputEncoding=new System.Text.UTF8Encoding(false);
      if(args.Contains("--help")){
       Console.WriteLine("wo-tester-cli --cli --mode quick|complete|failed --project RUTA --godot GODOT.exe [--speed 1|2|5|10]");
-      Console.WriteLine("wo-tester-cli --cli --mode android [--adb ADB.exe] [--apk WO.apk] [--package PAQUETE] [--serial SERIE]");
+      Console.WriteLine("wo-tester-cli --cli --mode android --apk WO.apk [--adb ADB.exe] [--serial SERIE]");
       Console.WriteLine("Ambos modos admiten [--timeout SEGUNDOS] y [--home RUTA].");return 0;
      }
      var cancel=new CancellationTokenSource();Console.CancelKeyPress+=(s,e)=>{e.Cancel=true;cancel.Cancel();};
@@ -120,7 +119,6 @@ namespace WOTester {
    Click("ScreenshotButton",()=>{var r=Selected();if(r!=null&&current!=null&&!String.IsNullOrEmpty(r.Screenshot))Open(Path.Combine(current.Folder,Path.GetFileName(r.Screenshot)));});
    Get<TextBox>("ProjectPath").Text=options.Project;Get<TextBox>("GodotPath").Text=options.Godot;
    Get<TextBox>("AdbPath").Text=options.Adb;Get<TextBox>("ApkPath").Text=options.Apk;Get<TextBox>("SerialBox").Text=options.AndroidSerial;
-   Select("PackageBox",options.AndroidPackage);
    Get<TextBox>("TimeoutBox").Text=options.TimeoutSeconds.ToString();Get<TextBox>("SeedBox").Text=options.Seed.ToString();
    Get<CheckBox>("AutoRunBox").IsChecked=options.AutoRun;Get<CheckBox>("VisibleBox").IsChecked=options.Visible;
    Select("ModeBox",options.Mode);Select("SpeedBox",options.Speed.ToString());Get<ComboBox>("FilterBox").SelectedIndex=0;
@@ -177,7 +175,7 @@ namespace WOTester {
     if(!File.Exists(options.Godot))throw new ArgumentException("Elegí el ejecutable de Godot 4.");
    }
    options.Adb=Get<TextBox>("AdbPath").Text.Trim().Trim('"');options.Apk=Get<TextBox>("ApkPath").Text.Trim().Trim('"');
-   options.AndroidPackage=Tag("PackageBox");options.AndroidSerial=Get<TextBox>("SerialBox").Text.Trim();
+   options.AndroidSerial=Get<TextBox>("SerialBox").Text.Trim();
    int timeout,seed;if(!Int32.TryParse(Get<TextBox>("TimeoutBox").Text,out timeout)||timeout<10||timeout>1800)throw new ArgumentException("El tiempo máximo debe estar entre 10 y 1800 segundos.");
    if(!Int32.TryParse(Get<TextBox>("SeedBox").Text,out seed))throw new ArgumentException("La semilla debe ser un número entero.");
    options.TimeoutSeconds=timeout;options.Seed=seed;options.Speed=Int32.Parse(Tag("SpeedBox"));
@@ -192,7 +190,7 @@ namespace WOTester {
    if(android){
     Text("GameVersion","ANDROID");
     Text("ProjectCaption","Un teléfono con depuración USB o un emulador conectado por ADB.");
-    Text("InventoryCaption","Usá un APK o una instalación existente de WO Definitive.");
+    Text("InventoryCaption","Instalación, simulación y controles en un solo APK de WO Definitive.");
     return;
    }
    try{

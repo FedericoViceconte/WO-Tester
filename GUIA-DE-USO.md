@@ -20,15 +20,17 @@ La opción **Iniciar automáticamente al abrir** aplica a las revisiones de escr
 
 Conectá un teléfono con depuración USB autorizada o iniciá un emulador. En **Configuración → Android** elegí `adb.exe` si el SDK no aparece automáticamente. Si hay varios dispositivos, copiá la serie desde `adb devices -l`. Mantené la pantalla desbloqueada durante la prueba.
 
-| Paquete | Selección en el tester | Prueba |
-| --- | --- | --- |
-| `com.frrentertainment.wodefinitive` | WO Definitive | Arranque y estabilidad durante 10 segundos. |
-| `com.frrentertainment.wodefinitive.test` | WO Definitive (pruebas) | El mismo arranque en el paquete de distribución de pruebas. |
-| `com.frrentertainment.wodefinitive.qa` | QA interno (menús y controles) | La escena de WO prueba menús, mapas, gestos y disparos y emite un resumen con fallos y capturas. |
+En **APK jugable de WO con pruebas integradas**, seleccioná el archivo de la edición de pruebas. Se requiere `aapt.exe` de **Android SDK Build-Tools** en el mismo SDK que `adb.exe`.
 
-Dejá vacío **APK de WO Definitive** para usar el paquete ya instalado. Para instalar un archivo desde el tester, seleccioná el APK y su paquete. Se requiere `aapt.exe` de **Android SDK Build-Tools** en el mismo SDK que `adb.exe`. El APK interno `WO-Android-QA.apk` se genera con `python tools/android_online/build.py --smoke` desde `VERSION-ACTUAL` con las dependencias de exportación de WO configuradas.
+En el panel elegí **Revisión Android** y pulsá **Iniciar revisión**. WO Tester valida el APK, lo instala o actualiza y comprueba el arranque normal. Luego ejecuta datos, catálogo, mapas, disparos, estabilidad, menús, controles táctiles y las escenas nativas incluidas. El informe enlaza la captura de arranque si pudo obtenerla y registra los casos que requieren una adaptación específica. Los escenarios de QA guardan sus datos en un perfil propio del teléfono.
 
-En el panel elegí **Revisión Android** y luego **Iniciar revisión**. El informe incluye los registros de WO de esa ejecución y enlaza la captura de arranque cuando la obtuvo. En QA, el informe incluye el resumen y deja las capturas de la escena en el almacenamiento del paquete. Si el dispositivo es lento, aumentá **Tiempo máximo por prueba** para darle más tiempo a la escena de QA.
+Para generar ese APK desde el proyecto editable de WO, ejecutá el exportador Android desde `VERSION-ACTUAL` apuntando al adaptador de WO Tester.
+
+```powershell
+python tools/android_online/build.py --tester-adapter "C:\ruta\a\WO-Tester\assets\probe.gd"
+```
+
+El resultado se guarda como `exports/android-online/WO-Definitive-Edition-Android-Pruebas.apk`. El mismo ícono abre el juego de forma normal.
 
 ## Leer resultados
 Seleccioná una fila para ver la evidencia y qué conviene revisar. Podés copiarla o abrir su registro. **Abrir informe** abre un HTML local con búsqueda y filtros.

@@ -9,10 +9,10 @@ using System.Threading;
 
 namespace WOTester {
  sealed class AndroidRunner {
-  public const string GamePackage="com.frrentertainment.wodefinitive";
-  public const string TestPackage=GamePackage+".test";
-  public const string QaPackage=GamePackage+".qa";
+  public const string TestPackage="com.frrentertainment.wodefinitive.test";
+  const string CaseIndex="assets/tests/mobile_native_index.json";
   const int ObservationSeconds=10;
+  static readonly Regex DeviceDisconnected=new Regex(@"(?im)(?:device (?:'.*?' )?not found|device offline|no devices/emulators found|device disconnected)");
   static readonly Regex SafeSerial=new Regex(@"\A[A-Za-z0-9_.:\[\]-]+\z");
   static readonly Regex LogLine=new Regex(@"^(?<level>[A-Z])/(?<tag>[^\s(]+)\s*\(\s*(?<pid>\d+)\):\s*(?<message>.*)$");
   static readonly Regex QaSummary=new Regex(@"\bANDROID_QA_DONE:\s*screenshots=(\d+)\s+failures=(\d+)\s*$");
@@ -40,13 +40,11 @@ namespace WOTester {
   }
 
   public string Run() {
-   package=String.IsNullOrWhiteSpace(options.AndroidPackage)?GamePackage:options.AndroidPackage;
+   package=TestPackage;
    report.AndroidPackage=package;
    report.GameVersion="desconocida";
    try {
     Begin("adb","Conexión por ADB",0);
-    if(package!=GamePackage&&package!=TestPackage&&package!=QaPackage)
-     throw new ArgumentException("Elegí el paquete del juego, de pruebas o de QA de WO.");
     adb=String.IsNullOrWhiteSpace(options.Adb)?DetectAdb(options.Project):options.Adb;
     if(!File.Exists(adb))throw new IOException("No se encontró adb.exe. Elegilo en Configuración o instalá Android SDK Platform-Tools.");
     adb=Path.GetFullPath(adb);
@@ -61,7 +59,9 @@ namespace WOTester {
      Result("Conexión por ADB","PASS",report.AndroidDevice);
      Install();
      if(!Launch())return "COMPLETED";
-     return Observe();
+     string startup=Observe();
+     if(startup!="COMPLETED")return startup;
+     return RunSuite();
     }
    } catch(OperationCanceledException) {
     Result("Prueba Android detenida","CANCELLED","Se conservó la evidencia obtenida hasta la cancelación.");
@@ -71,8 +71,7 @@ namespace WOTester {
     return "BLOCKED";
    } finally {
     add(new Result{Id="android:coverage",Name="Cobertura Android pendiente",Category="Cobertura pendiente",Status="SKIP",
-     Detail=(package==QaPackage?"Las capturas de la escena QA requieren inspección visual. ":"Los controles táctiles y mapas se prueban con el APK interno de QA. ")+
-      "El inicio de sesión Epic, las partidas entre dispositivos, la voz, el aspecto visual y el rendimiento requieren pruebas en los equipos de destino."});
+     Detail="El inicio de sesión Epic, las partidas entre dispositivos, la voz, el aspecto visual y el rendimiento requieren pruebas específicas. Las capturas de QA quedan en el perfil aislado del dispositivo."});
    }
   }
 
@@ -93,25 +92,27 @@ namespace WOTester {
 
   void Install() {
    Begin("apk","Paquete Android",1);
-   if(!String.IsNullOrWhiteSpace(options.Apk)) {
-    string apk=Path.GetFullPath(options.Apk);
-    if(!File.Exists(apk)||!String.Equals(Path.GetExtension(apk),".apk",StringComparison.OrdinalIgnoreCase))
-     throw new IOException("Elegí un archivo APK existente.");
-    string aapt=FindAapt(adb);
-    if(aapt==null)throw new IOException("Para instalar un APK, instalá Android SDK Build-Tools en el mismo SDK que adb.exe.");
-    var badging=Require(Exec(aapt,"dump","badging",apk));
-    string metadata=badging.Text.Split('\n').FirstOrDefault(x=>x.StartsWith("package:"))??"";
-    SaveLog(metadata);
-    var identity=Regex.Match(metadata,@"^package: name='([^']+)'");
-    if(!identity.Success||identity.Groups[1].Value!=package)
-     throw new IOException("El APK corresponde a "+(identity.Success?identity.Groups[1].Value:"un paquete desconocido")+". Elegí su paquete antes de instalarlo.");
-    report.Fingerprint=Scanner.Hash(apk);
-    var install=Device("install","-r",apk);
-    SaveLog(install.Text);
-    Require(install);
-    if(!Regex.IsMatch(install.Text,@"(?m)^Success\s*$"))
-     throw new IOException("ADB no confirmó la instalación. Revisá android-apk.log.");
-   }
+   if(String.IsNullOrWhiteSpace(options.Apk))throw new IOException("Elegí el APK jugable de WO con pruebas integradas en Configuración.");
+   string apk=Path.GetFullPath(options.Apk);
+   if(!File.Exists(apk)||!String.Equals(Path.GetExtension(apk),".apk",StringComparison.OrdinalIgnoreCase))
+    throw new IOException("Elegí un archivo APK existente.");
+   string aapt=FindAapt(adb);
+   if(aapt==null)throw new IOException("Para instalar el APK, instalá Android SDK Build-Tools en el mismo SDK que adb.exe.");
+   var badging=Require(Exec(aapt,"dump","badging",apk));
+   string metadata=badging.Text.Split('\n').FirstOrDefault(x=>x.StartsWith("package:"))??"";
+   SaveLog(metadata);
+   var identity=Regex.Match(metadata,@"^package: name='([^']+)'");
+   if(!identity.Success||identity.Groups[1].Value!=package)
+    throw new IOException("Elegí la edición jugable de WO con pruebas integradas.");
+   var archive=Require(Exec(aapt,"list",apk));
+   if(!archive.Text.Split('\n').Any(x=>x.Trim()==CaseIndex))
+    throw new IOException("El APK no incluye la revisión completa. Actualizá el archivo APK de WO Definitive.");
+   report.Fingerprint=Scanner.Hash(apk);
+   var install=Device("install","-r",apk);
+   SaveLog(install.Text);
+   Require(install);
+   if(!Regex.IsMatch(install.Text,@"(?m)^Success\s*$"))
+    throw new IOException("ADB no confirmó la instalación. Revisá android-apk.log.");
    var installed=Device("shell","pm","path",package);
    SaveLog(installed.Text);
    if(!installed.Cancelled&&!installed.Timeout&&installed.Exit==1&&String.IsNullOrWhiteSpace(installed.Text))
@@ -137,10 +138,7 @@ namespace WOTester {
   string marker, logSince, initialPid;
   bool Launch() {
    Begin("launch","Inicio de WO en Android",2);
-   string deviceTime=Require(Device("shell","date","+%m-%d_%H:%M:%S")).Text.Trim();
-   logSince=LogcatStartTime(deviceTime);
-   marker="wo-"+Guid.NewGuid().ToString("N");
-   Require(Device("shell","log","-t","WOTester",marker));
+   MarkLogStart();
    var launch=Device("shell","am","start","-W","-S","-a","android.intent.action.MAIN","-c","android.intent.category.LAUNCHER","-p",package);
    SaveLog(launch.Text);
    if(launch.Cancelled||launch.Timeout)Require(launch);
@@ -157,42 +155,166 @@ namespace WOTester {
   }
 
   string Observe() {
-   bool qa=package==QaPackage;
-   string name=qa?"QA de menús, mapas y controles táctiles":"Estabilidad durante el arranque";
+   string name="Estabilidad durante el arranque";
    Begin("runtime",name,3);
-   int seconds=qa?options.TimeoutSeconds:ObservationSeconds;
-   var watch=Stopwatch.StartNew();
-   string status,detail;
-   while(true) {
-    if(!qa&&watch.Elapsed.TotalSeconds<seconds)Wait(250);
-    else {
-     string pid=CurrentPid();
-     var dump=Require(Device("logcat","-b","main","-b","system","-b","crash","-b","events","-d","-v","brief","-T",logSince,
-      "WOTester:I","Godot:V","godot:V","AndroidRuntime:E","am_proc_start:I","am_crash:I","am_anr:I","*:S"));
-     var evidence=CollectLogs(dump.Text,marker,package,initialPid,pid);
-     File.WriteAllText(log,Runner.Redact(String.Join(Environment.NewLine,evidence)),new UTF8Encoding(false));
-     var fault=evidence.Select(x=>LogLine.Match(x)).FirstOrDefault(IsFault);
-     var summary=evidence.Select(x=>QaSummary.Match(x)).LastOrDefault(x=>x.Success);
-     if(fault!=null) { status="FAIL";detail=fault.Groups["message"].Value;break; }
-     if(qa&&summary!=null) {
-      status=summary.Groups[2].Value=="0"&&summary.Groups[1].Value!="0"?"PASS":"FAIL";
-      detail="La escena QA informó "+summary.Groups[1].Value+" capturas y "+summary.Groups[2].Value+" fallos.";
-      break;
+   Wait(ObservationSeconds*1000);
+   string pid=CurrentPid();
+   var evidence=ReadEvidence(pid);
+   var fault=evidence.Select(x=>LogLine.Match(x)).FirstOrDefault(IsFault);
+   if(fault!=null) {
+    Result(name,"FAIL",fault.Groups["message"].Value);
+    return "FAILED";
+   }
+   if(pid.Length==0||(initialPid.Length>0&&pid!=initialPid)) {
+    Result(name,"FAIL","El proceso de WO se cerró o reinició antes de completar la prueba.");
+    return "FAILED";
+   }
+   Result(name,"PASS","WO siguió activo después de "+ObservationSeconds+" segundos sin errores de Godot, cierres ni ANR registrados.");
+   Capture();
+   return "COMPLETED";
+  }
+
+  void MarkLogStart() {
+   logSince=LogcatStartTime(Require(Device("shell","date","+%m-%d_%H:%M:%S")).Text.Trim());
+   marker="wo-"+Guid.NewGuid().ToString("N");
+   Require(Device("shell","log","-t","WOTester",marker));
+  }
+
+  List<string> ReadEvidence(string pid) {
+   var dump=Require(Device("logcat","-b","main","-b","system","-b","crash","-b","events","-d","-v","brief","-T",logSince,
+    "WOTester:I","Godot:V","godot:V","GODOT:V","AndroidRuntime:E","am_proc_start:I","am_crash:I","am_anr:I","*:S"));
+   var evidence=CollectLogs(dump.Text,marker,package,initialPid,pid);
+   File.WriteAllText(log,Runner.Redact(String.Join(Environment.NewLine,evidence)),new UTF8Encoding(false));
+   return evidence;
+  }
+
+  string RunSuite() {
+   int position=5,total=0;
+   var native=new List<Dictionary<string,string>>();
+   string[] phases={"data","catalog","maps","weapons","soak","touch"};
+   string[] names={"Datos del APK","Catálogo en Android","Mapas en Android","Armas en Android","Estabilidad prolongada en Android","Menús y controles táctiles"};
+   for(int i=0;i<phases.Length;i++){
+    string phase=phases[i];
+    int limit=Math.Max(options.TimeoutSeconds,phase=="weapons"?600:phase=="maps"?300:120);
+    var evidence=RunQa(phase,"wo-tester-user",names[i],position++,total,limit);
+    bool complete=ReportQa(phase,names[i],evidence);
+    if(phase=="data"){
+     if(!complete)return "BLOCKED";
+     foreach(string message in evidence.Where(x=>x.StartsWith("WO_TESTER_NATIVE "))){
+      var entry=Product.Json().Deserialize<Dictionary<string,string>>(message.Substring("WO_TESTER_NATIVE ".Length));
+      if(entry!=null&&entry.ContainsKey("id")&&Regex.IsMatch(entry["id"],@"\A[a-z0-9_]+_test\z"))native.Add(entry);
      }
-     if(pid.Length==0||(!qa&&initialPid.Length>0&&pid!=initialPid)) {
-      status="FAIL";detail="El proceso de WO se cerró o reinició antes de completar la prueba.";break;
-     }
-     if(watch.Elapsed.TotalSeconds>=seconds) {
-      status=qa?"BLOCKED":"PASS";
-      detail=qa?"Se agotó el tiempo sin recibir ANDROID_QA_DONE.":"WO siguió activo después de "+ObservationSeconds+" segundos sin errores de Godot, cierres ni ANR registrados.";
-      break;
-     }
-     Wait(2000);
+     total=position+phases.Length-1+native.Count;
     }
    }
-   Result(name,status,Runner.Redact(detail));
-   if(!qa&&status=="PASS")Capture();
-   return status=="BLOCKED"?"BLOCKED":"COMPLETED";
+   foreach(var entry in native){
+    string id=entry["id"];
+    string title=Scanner.Friendly(id);
+    string reason,guard;
+    if(entry.TryGetValue("reason",out reason)&&!String.IsNullOrEmpty(reason)){
+     Begin(id,title,position++,total);
+     Result(title,"SKIP",reason);
+     continue;
+    }
+    if(!entry.TryGetValue("guard",out guard))guard="wo-tester-user";
+    var evidence=RunQa("native:"+id,guard,title,position++,total,options.TimeoutSeconds);
+    ReportNative(id,title,evidence);
+   }
+   return report.Results.Any(x=>x.Status=="BLOCKED")?"BLOCKED":"COMPLETED";
+  }
+
+  List<string> RunQa(string phase,string guard,string title,int index,int total,int timeout) {
+   Begin(phase.Replace(':','-'),title,index,total);
+   MarkLogStart();
+   initialPid="";
+   string requests="files/wo-tester/requests";
+   string request=requests+"/"+marker;
+   Require(Device("shell","run-as",package,"mkdir","-p",requests));
+   Require(Device("shell","run-as",package,"touch",request));
+   bool stop=false;
+   try{
+    var launch=Require(Device("shell","am","start","-S","-a","android.intent.action.MAIN","-c","android.intent.category.LAUNCHER","-p",package,
+     "--es","wo_tester_token",marker,"--es","wo_tester_phase",phase,"--es","wo_tester_guard",guard,
+     "--es","wo_tester_seed",options.Seed.ToString(),"--es","wo_tester_speed",options.Speed.ToString()));
+    SaveLog(launch.Text);
+    if(Regex.IsMatch(launch.Text,@"(?im)^\s*Error|unable to resolve Intent"))throw new IOException(launch.Text.Trim());
+    initialPid=CurrentPid();
+    var watch=Stopwatch.StartNew();
+    var evidence=new List<string>();
+    int waitLimit=phase=="data"?Math.Min(timeout,30):timeout;
+    while(watch.Elapsed.TotalSeconds<waitLimit){
+     Wait(1500);
+     string pid=CurrentPid();
+     if(initialPid.Length==0)initialPid=pid;
+     evidence=ReadEvidence(pid).Select(x=>LogLine.Match(x)).Where(x=>x.Success)
+      .Select(x=>IsFault(x)?"ERROR: "+x.Groups["message"].Value:x.Groups["message"].Value).ToList();
+     if(evidence.Any(x=>x.StartsWith("WO_TESTER_DONE ")||QaSummary.IsMatch(x)))return evidence;
+     if(evidence.Any(x=>x.Contains("SCRIPT ERROR:")||x.StartsWith("ERROR: FATAL EXCEPTION"))){
+      stop=true;
+      return evidence;
+     }
+     if(pid.Length==0&&watch.Elapsed.TotalSeconds>=5)return evidence;
+    }
+    stop=true;
+    evidence.Add("WO_TESTER_TIMEOUT");
+    return evidence;
+   } finally {
+    try {
+     if(stop||token.IsCancellationRequested)RunCommand(adb,10,CancellationToken.None,"-s",serial,"shell","am","force-stop",package);
+     RunCommand(adb,10,CancellationToken.None,"-s",serial,"shell","run-as",package,"rm","-f",request);
+    } catch(IOException) {}
+    catch(System.ComponentModel.Win32Exception) {}
+   }
+  }
+
+  bool ReportQa(string phase,string title,List<string> evidence) {
+   int declared=0;
+   foreach(string message in evidence.Where(x=>x.StartsWith("WO_TESTER_EVENT "))){
+    var result=Product.Json().Deserialize<Result>(message.Substring("WO_TESTER_EVENT ".Length));
+    if(result==null||String.IsNullOrWhiteSpace(result.Id))continue;
+    result.Id="android:"+result.Id;
+    result.Log=Path.GetFileName(log);
+    result.Reproduce="Revisión Android · "+title;
+    add(result);
+    declared++;
+   }
+   string summary=evidence.LastOrDefault(x=>x.StartsWith("WO_TESTER_DONE ")||QaSummary.IsMatch(x));
+   if(summary==null){
+    bool failed=Runner.Classify(new ProcessOutcome{Text=String.Join("\n",evidence)})=="FAIL";
+    Result(title,failed?"FAIL":"BLOCKED",failed?"El escenario Android registró un error. Revisá el registro.":"El APK no devolvió el resultado de "+phase+". Revisá el registro.");
+    return false;
+   }
+   var touch=QaSummary.Match(summary);
+   if(touch.Success){
+    Result(title,touch.Groups[2].Value=="0"&&touch.Groups[1].Value!="0"?"PASS":"FAIL",
+     "La escena QA informó "+touch.Groups[1].Value+" capturas y "+touch.Groups[2].Value+" fallos.");
+   } else {
+    var done=Product.Json().Deserialize<Dictionary<string,object>>(summary.Substring("WO_TESTER_DONE ".Length));
+    if(done==null||!done.ContainsKey("phase")||Convert.ToString(done["phase"])!=phase||
+     !done.ContainsKey("results")||Convert.ToInt32(done["results"])!=declared||declared==0){
+     Result(title,"BLOCKED","Logcat devolvió un resumen incompleto. Revisá el registro.");
+     return false;
+    }
+    if(Runner.Classify(new ProcessOutcome{Text=String.Join("\n",evidence)})=="FAIL")
+     Result(title,"FAIL","Se registró un error de ejecución además de las comprobaciones declaradas.");
+   }
+   return true;
+  }
+
+  void ReportNative(string id,string title,List<string> evidence) {
+   string text=String.Join("\n",evidence);
+   string status=Runner.Classify(new ProcessOutcome{Text=text});
+   if(evidence.Contains("WO_TESTER_TIMEOUT"))status=status=="FAIL"?"FAIL":"BLOCKED";
+   if(!evidence.Contains("WO_TESTER_NATIVE_START "+id))status=status=="FAIL"?"FAIL":"BLOCKED";
+   else if(status=="PASS"&&!Regex.IsMatch(text,@"(?i)\b0 failures\b|\bPASS\b"))status="REVIEW";
+   var summaries=evidence.Where(x=>Regex.IsMatch(x,@"(?i)\bchecks\b|\bPASS\b|\bfailures\b|ERROR:")).Take(10);
+   string detail=String.Join("\n",summaries);
+   int checks=0;
+   foreach(Match match in Regex.Matches(text,@"\b(\d+) checks\b")){
+    int count;
+    if(Int32.TryParse(match.Groups[1].Value,out count))checks=Math.Max(checks,count);
+   }
+   Result(title,status,detail.Length>0?detail:"La escena terminó o se detuvo sin un resumen compatible. Revisá el registro.",checks:checks);
   }
 
   string CurrentPid() {
@@ -274,20 +396,33 @@ namespace WOTester {
    if(result.Exit!=0)throw new IOException(String.IsNullOrWhiteSpace(result.Text)?"El comando Android terminó con código "+result.Exit+".":result.Text.Trim());
    return result;
   }
-  ProcessOutcome Device(params string[] args) { return Exec(adb,new[]{"-s",serial}.Concat(args).ToArray()); }
+  ProcessOutcome Device(params string[] args) {
+   var command=new[]{"-s",serial}.Concat(args).ToArray();
+   var result=Exec(adb,command);
+   if(result.Exit==0||result.Cancelled||!DeviceDisconnected.IsMatch(result.Text))return result;
+   var watch=Stopwatch.StartNew();
+   while(watch.Elapsed.TotalSeconds<20){
+    Wait(1500);
+    var devices=Exec(adb,"devices","-l");
+    try {
+     if(SelectDevice(Require(devices).Text,serial)==serial)return Exec(adb,command);
+    } catch(IOException) {}
+   }
+   return result;
+  }
   ProcessOutcome Exec(string exe,params string[] args) { return RunCommand(exe,options.TimeoutSeconds,token,args); }
   ProcessOutcome RunCommand(string exe,int timeout,CancellationToken cancellation,params string[] args) {
    return Runner.Execute(exe,String.Join(" ",args.Select(Runner.Quote)),report.Folder,null,timeout,cancellation,false);
   }
-  void Begin(string id,string name,int index) {
+  void Begin(string id,string name,int index,int total=5) {
    step=id;
    log=Path.Combine(report.Folder,"android-"+id+".log");
-   progress(name,index,5);
+   progress(name,index,total);
   }
   void SaveLog(string text) { File.AppendAllText(log,text+Environment.NewLine,new UTF8Encoding(false)); }
-  void Result(string name,string status,string detail,string screenshot=null) {
+  void Result(string name,string status,string detail,string screenshot=null,int checks=0) {
    add(new Result{Id="android:"+step,Name=name,Category="Android",Status=status,Detail=detail,
-    Checks=status=="PASS"||status=="FAIL"?1:0,Log=File.Exists(log)?Path.GetFileName(log):null,
+    Checks=checks>0?checks:status=="PASS"||status=="FAIL"?1:0,Log=File.Exists(log)?Path.GetFileName(log):null,
     Screenshot=screenshot,Reproduce="Revisión Android · "+package+(serial==null?"":" · "+serial)});
   }
  }

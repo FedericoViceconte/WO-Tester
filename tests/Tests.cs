@@ -59,7 +59,7 @@ namespace WOTester {
     try{AndroidRunner.SelectDevice(devices,"waiting");}catch(IOException){unauthorized=true;}
     Check(unauthorized,"Android refuses an unauthorized device");
     Check(AndroidRunner.LogcatStartTime("11-16_23:45:53")=="11-16 23:45:53.000","Android logcat starts at the device clock time");
-    string qa=AndroidRunner.QaPackage;
+    string qa=AndroidRunner.TestPackage;
     string logs="E/godot ( 12): ERROR: stale\r\nI/WOTester( 1): wo-fixture\r\n"+
      "I/am_proc_start( 2): [0,12,1001,"+qa+",activity,Fixture]\r\n"+
      "E/AndroidRuntime( 99): FATAL EXCEPTION: unrelated\r\n"+

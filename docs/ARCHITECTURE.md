@@ -4,9 +4,9 @@ WO Tester es una aplicación WPF sobre .NET Framework 4.8, con un motor reutiliz
 
 ## Android
 
-Runner delega el modo Android a AndroidRunner. La ejecución selecciona un único dispositivo y toma un bloqueo por serie. Antes de instalar un APK con ADB compara su paquete mediante `aapt dump badging`. Luego comprueba la instalación, inicia la actividad de WO y registra evidencia por paso.
+Runner delega el modo Android a AndroidRunner. La ejecución selecciona un único dispositivo y toma un bloqueo por serie. Antes de instalar el APK compara su paquete y comprueba que incluya el índice de escenarios. Luego instala o actualiza el APK, inicia WO y registra evidencia por paso.
 
-Un marcador único en Logcat delimita el arranque. El filtro retiene mensajes de los PID de WO y eventos de cierres o falta de respuesta asociados a su paquete. El lanzamiento normal verifica que WO sigue activo durante 10 segundos. La escena QA debe publicar su resumen `ANDROID_QA_DONE` para completar su prueba.
+Un marcador único en Logcat delimita cada arranque. La búsqueda comienza en la hora del teléfono y retiene mensajes de WO y eventos de cierres o falta de respuesta asociados a su paquete. El lanzamiento normal verifica que WO sigue activo durante 10 segundos. Después, las fases de QA se ejecutan en la misma app mediante solicitudes de ADB autorizadas con `run-as` y un directorio aislado por escenario.
 
 Los informes Android guardan paquete, dispositivo, nivel de API y, al instalar, SHA-256 del APK. La captura de pantalla se obtiene cuando la ventana de WO está en primer plano y se enlaza desde el resultado para inspección visual.
 

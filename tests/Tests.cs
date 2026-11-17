@@ -48,6 +48,31 @@ namespace WOTester {
     var timeout=Runner.Execute(exe,"--sleep",root,profile,1,CancellationToken.None);
     Check(timeout.Timeout&&timeout.Seconds<7,"timed out child terminated");
     using(var cancel=new CancellationTokenSource()){cancel.Cancel();var p=Runner.Execute(exe,"--sleep",root,profile,5,cancel.Token);Check(p.Cancelled,"cancellation terminates child");}
+    string devices="List of devices attached\r\nwaiting\tunauthorized usb:1\r\nemulator-5554\tdevice product:sdk\r\n";
+    Check(AndroidRunner.SelectDevice(devices,"")=="emulator-5554","Android selects the single authorized device");
+    devices+="other\tdevice model:POCO\r\n";
+    Check(AndroidRunner.SelectDevice(devices,"other")=="other","Android honors the explicit serial");
+    bool ambiguous=false;
+    try{AndroidRunner.SelectDevice(devices,"");}catch(IOException){ambiguous=true;}
+    Check(ambiguous,"Android refuses an ambiguous device");
+    bool unauthorized=false;
+    try{AndroidRunner.SelectDevice(devices,"waiting");}catch(IOException){unauthorized=true;}
+    Check(unauthorized,"Android refuses an unauthorized device");
+    string qa=AndroidRunner.QaPackage;
+    string logs="E/godot ( 12): ERROR: stale\r\nI/WOTester( 1): wo-fixture\r\n"+
+     "I/am_proc_start( 2): [0,12,1001,"+qa+",activity,Fixture]\r\n"+
+     "E/AndroidRuntime( 99): FATAL EXCEPTION: unrelated\r\n"+
+     "I/godot ( 12): ANDROID_QA_DONE: screenshots=5 failures=0\r\n"+
+     "I/am_anr ( 2): [0,12,"+qa+",0,Input dispatching timed out]\r\n"+
+     "I/am_crash( 2): [0,13,"+qa+".other,0,Unrelated]\r\n";
+    var scoped=AndroidRunner.CollectLogs(logs,"wo-fixture",qa);
+    Check(scoped.Count==2&&scoped[0].Contains("ANDROID_QA_DONE")&&scoped[1].Contains("am_anr"),"Android logs are scoped to the current run and package, including Android events");
+    bool markerMissing=false;
+    try{AndroidRunner.CollectLogs(logs,"wo-missing",qa);}catch(IOException){markerMissing=true;}
+    Check(markerMissing,"missing Android log marker blocks the run");
+    var blocked=new Report{State="COMPLETED"};
+    blocked.Results.Add(new Result{Status="BLOCKED"});
+    Check(blocked.ExitCode==2,"a blocked scenario makes the CLI exit incomplete");
     Directory.CreateDirectory(Path.Combine(root,"data"));Directory.CreateDirectory(Path.Combine(root,"tests"));
     File.WriteAllText(Path.Combine(root,"project.godot"),"[application]\nconfig/version=\"fixture\"\n");
     File.WriteAllText(Path.Combine(root,"data","maps_new.json"),"[{\"name\":\"map\"}]");

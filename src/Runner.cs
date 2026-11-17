@@ -20,7 +20,8 @@ namespace WOTester {
    foreach(char c in value){if(c=='\\'){slashes++;continue;}if(c=='"'){b.Append('\\',slashes*2+1);b.Append(c);slashes=0;}else{b.Append('\\',slashes);slashes=0;b.Append(c);}}
    b.Append('\\',slashes*2);b.Append('"');return b.ToString();
   }
-  public static ProcessOutcome Execute(string exe,string args,string cwd,string profile,int timeout,CancellationToken token) {
+  public static ProcessOutcome Execute(string exe,string args,string cwd,string profile,int timeout,CancellationToken token,bool stopOnScriptError=true) {
+   if(token.IsCancellationRequested)return new ProcessOutcome{Cancelled=true,Text=""};
    var watch=Stopwatch.StartNew();var output=new StringBuilder();var gate=new object();int scriptFault=0;
    var start=new ProcessStartInfo(exe,args){WorkingDirectory=cwd,UseShellExecute=false,RedirectStandardOutput=true,RedirectStandardError=true,CreateNoWindow=true,StandardOutputEncoding=Encoding.UTF8,StandardErrorEncoding=Encoding.UTF8};
    if(!String.IsNullOrEmpty(profile)){
@@ -30,7 +31,7 @@ namespace WOTester {
     start.EnvironmentVariables["WO_TESTER_ISOLATED"]="1";
    }
    using(var process=new Process {StartInfo=start}){
-    DataReceivedEventHandler handler=(s,e)=>{if(e.Data!=null)lock(gate){if(e.Data.TrimStart().StartsWith("SCRIPT ERROR:"))Interlocked.Exchange(ref scriptFault,1);if(output.Length<12*1024*1024)output.AppendLine(e.Data);}};
+    DataReceivedEventHandler handler=(s,e)=>{if(e.Data!=null)lock(gate){if(stopOnScriptError&&e.Data.TrimStart().StartsWith("SCRIPT ERROR:"))Interlocked.Exchange(ref scriptFault,1);if(output.Length<12*1024*1024)output.AppendLine(e.Data);}};
     process.OutputDataReceived+=handler;process.ErrorDataReceived+=handler;
     process.Start();process.BeginOutputReadLine();process.BeginErrorReadLine();
     bool timed=false,cancelled=false;
@@ -72,22 +73,30 @@ namespace WOTester {
   }
   public Report Run(Options selected,CancellationToken cancellation) {
    options=selected;token=cancellation;
+   if(options.Mode=="android") {
+    report=NewReport();
+    var androidClock=Stopwatch.StartNew();
+    Checkpoint();if(OnStarted!=null)OnStarted(report);
+    report.State=new AndroidRunner(options,report,token,Add,Progress).Run();
+    return Finish(androidClock);
+   }
    string project=Scanner.NormalizeProject(options.Project);
    if(!File.Exists(options.Godot))throw new ArgumentException("Seleccioná el ejecutable de Godot 4 que corresponde al juego.");
    inventory=Scanner.Scan(project);
-   string id=DateTime.UtcNow.ToString("yyyyMMdd-HHmmss")+"-"+Guid.NewGuid().ToString("N").Substring(0,6);
-   string folder=Path.Combine(Product.Home,"runs",id);Directory.CreateDirectory(folder);
-   report=new Report{Id=id,StartedUtc=DateTime.UtcNow.ToString("o"),Project=project,GameVersion=inventory.Version,Fingerprint=inventory.Fingerprint,Commit=inventory.Commit,Dirty=inventory.Dirty,Mode=options.Mode,Speed=options.Speed,Seed=options.Seed,State="RUNNING",Content=inventory.Content,Folder=folder};
+   report=NewReport();
+   report.Project=project;report.GameVersion=inventory.Version;report.Fingerprint=inventory.Fingerprint;
+   report.Commit=inventory.Commit;report.Dirty=inventory.Dirty;report.Content=inventory.Content;
    Report previous=Reports.Latest(project);
    if(previous!=null) {
     foreach(var item in inventory.Content)if(!previous.Content.ContainsKey(item.Key))report.Changes.Add("NUEVO "+item.Key);else if(previous.Content[item.Key]!=item.Value)report.Changes.Add("CAMBIÓ "+item.Key);
     foreach(var item in previous.Content)if(!inventory.Content.ContainsKey(item.Key))report.Changes.Add("ELIMINADO "+item.Key);
    } else report.Changes.Add("Primera revisión: se creó la referencia de contenido.");
    var clock=Stopwatch.StartNew();
-   Product.Write(Path.Combine(folder,"report.json"),report);
+   Checkpoint();
    if(OnStarted!=null)OnStarted(report);
    try {
     var version=Execute(options.Godot,"--version",project,null,10,token);
+    if(version.Cancelled)throw new OperationCanceledException();
     report.GodotVersion=version.Text.Trim();
     if(version.Exit!=0 || !report.GodotVersion.StartsWith("4."))throw new ArgumentException("WO Tester necesita Godot 4. Resultado: "+report.GodotVersion);
     var feature=Regex.Match(File.ReadAllText(Path.Combine(project,"project.godot")),@"config/features=PackedStringArray\(""([0-9]+\.[0-9]+)");
@@ -101,14 +110,14 @@ namespace WOTester {
     }
     var native=inventory.Tests.Where(t=>options.Mode!="quick" || Quick.Contains(Path.GetFileNameWithoutExtension(t.Scene))).ToList();
     if(options.Mode=="failed" && previous!=null)native=native.Where(t=>previous.Results.Any(r=>r.Id==t.Id && (r.Status=="FAIL" || r.Status=="BLOCKED"))).ToList();
-    int total=inventory.JsonFiles.Count+native.Count+4;int done=0;
+    var phases=options.Mode=="quick"?new[]{"catalog","maps"}:new[]{"catalog","maps","weapons","soak"};
+    int total=inventory.JsonFiles.Count+native.Count+phases.Length;int done=0;
     foreach(var file in inventory.JsonFiles) {
      if(token.IsCancellationRequested)break;
      Progress("Validando "+Path.GetFileName(file),done++,total);
      Add(ValidateJson(project,file));
     }
     foreach(string diagnostic in inventory.Diagnostics)Add(new Result{Id="inventory:"+report.Results.Count,Name="Catálogo incompleto",Category="Catálogo",Status="FAIL",Detail=diagnostic,Suggestion="Revisá el archivo de datos indicado."});
-    var phases=options.Mode=="quick"?new[]{"catalog","maps"}:new[]{"catalog","maps","weapons","soak"};
     foreach(var phase in phases) {
      if(token.IsCancellationRequested)break;
      Progress(phase=="catalog"?"Resolviendo el catálogo del juego":phase=="maps"?"Probando todos los mapas":phase=="weapons"?"Disparando las armas habilitadas":"Ejecutando una partida prolongada",done++,total);
@@ -122,19 +131,26 @@ namespace WOTester {
     Add(new Result{Id="coverage:online",Name="Online real, nube y EAC",Category="Cobertura pendiente",Status="SKIP",Detail="Las pruebas locales de red usan escenarios controlados. Esta ejecución no certifica una partida pública, guardado en nube, voz entre equipos ni EAC.",Suggestion="Validar con cuentas de prueba, varios equipos y el lanzador oficial protegido."});
     Add(new Result{Id="coverage:visual",Name="Inspección visual y hardware real",Category="Cobertura pendiente",Status=options.Visible?"REVIEW":"SKIP",Detail=options.Visible?"Se generaron capturas de mapas para revisión humana; no se compararon contra imágenes aprobadas.":"La ejecución sin gráficos no certifica presentación, audio ni rendimiento gráfico.",Suggestion="Activá mapas visibles para capturas. Revisá interfaz, audio y rendimiento en los dispositivos de destino."});
     Add(new Result{Id="coverage:rules",Name="Cobertura de mecánicas nuevas",Category="Cobertura pendiente",Status="REVIEW",Detail="Los mapas y armas nuevos reciben pruebas comunes. Una mecánica nueva necesita reglas específicas. No se recorren todas las combinaciones ni se garantiza ausencia de bugs.",Suggestion="Agregar una escena *_test.tscn en tests/ del juego para cada comportamiento nuevo; se descubrirá automáticamente."});
-    report.State=token.IsCancellationRequested?"CANCELLED":"COMPLETED";
+    report.State=token.IsCancellationRequested?"CANCELLED":report.Results.Any(x=>x.Status=="BLOCKED")?"BLOCKED":"COMPLETED";
+   } catch(OperationCanceledException) {
+    report.State="CANCELLED";
    } catch(Exception e) {
     Add(new Result{Id="environment:exception",Name="No se pudo completar la revisión",Category="Entorno",Status="BLOCKED",Detail=e.Message,Suggestion="Revisá las rutas y el entorno. Los resultados anteriores se conservaron."});
     report.State=token.IsCancellationRequested?"CANCELLED":"BLOCKED";
    }
    return Finish(clock);
   }
+  Report NewReport() {
+   string id=DateTime.UtcNow.ToString("yyyyMMdd-HHmmss")+"-"+Guid.NewGuid().ToString("N").Substring(0,6);
+   return new Report{Id=id,StartedUtc=DateTime.UtcNow.ToString("o"),Mode=options.Mode,Speed=options.Speed,Seed=options.Seed,
+    State="RUNNING",Folder=Path.Combine(Product.Home,"runs",id)};
+  }
   void Progress(string text,int done,int total){if(OnProgress!=null)OnProgress(text,done,total);}
   void Add(Result r) { if(r.Status=="FAIL" && String.IsNullOrEmpty(r.Severity))r.Severity="media"; report.Results.Add(r);if(OnResult!=null)OnResult(r); }
   void Checkpoint(){Product.Write(Path.Combine(report.Folder,"report.json"),report);}
   Report Finish(Stopwatch clock) {
    report.Seconds=clock.Elapsed.TotalSeconds;report.FinishedUtc=DateTime.UtcNow.ToString("o");
-   try {
+   if(report.Mode!="android")try {
     var current=Scanner.Scan(options.Project);
     if(current.Fingerprint!=report.Fingerprint)Add(new Result{Id="environment:changed",Name="El juego cambió durante las pruebas",Category="Entorno",Status="REVIEW",Detail="La huella del código es distinta a la inicial. El informe contiene resultados de contenido que pudo cambiar.",Suggestion="Cerrá los cambios y repetí la revisión sobre una versión estable."});
    } catch {}

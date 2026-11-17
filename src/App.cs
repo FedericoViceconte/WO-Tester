@@ -20,8 +20,8 @@ using System.Runtime.InteropServices;
 [assembly:AssemblyDescription("Laboratorio independiente de pruebas para WO Definitive")]
 [assembly:AssemblyCompany("FRR Games")]
 [assembly:AssemblyProduct("WO Tester")]
-[assembly:AssemblyVersion("1.0.0.0")]
-[assembly:AssemblyFileVersion("1.0.0.0")]
+[assembly:AssemblyVersion("1.1.0.0")]
+[assembly:AssemblyFileVersion("1.1.0.0")]
 namespace WOTester {
  public static class Program {
   public static string[] Arguments;
@@ -33,20 +33,34 @@ namespace WOTester {
     Directory.CreateDirectory(Product.Home);
     Options options=Options.Load();
     options.Project=Arg("--project",String.IsNullOrEmpty(options.Project)?Scanner.DetectProject():options.Project);
+    if(!String.IsNullOrWhiteSpace(options.Project)) {
+     try { options.Project=Scanner.NormalizeProject(options.Project); }
+     catch(ArgumentException) {}
+    }
     options.Godot=Arg("--godot",String.IsNullOrEmpty(options.Godot)?Scanner.DetectGodot():options.Godot);
     options.Mode=Arg("--mode",options.Mode);options.Speed=Int32.Parse(Arg("--speed",options.Speed.ToString()));
+    options.Adb=Arg("--adb",options.Adb);
+    options.Apk=Arg("--apk",args.Contains("--cli")?"":options.Apk);
+    options.AndroidPackage=Arg("--package",options.AndroidPackage);
+    options.AndroidSerial=Arg("--serial",options.AndroidSerial);
+    options.TimeoutSeconds=Int32.Parse(Arg("--timeout",options.TimeoutSeconds.ToString()));
+    if(options.TimeoutSeconds<10||options.TimeoutSeconds>1800)throw new ArgumentException("El tiempo máximo debe estar entre 10 y 1800 segundos.");
     options.Speed=Math.Max(1,Math.Min(10,options.Speed));
     if(args.Contains("--cli")){
      Console.OutputEncoding=new System.Text.UTF8Encoding(false);
-     if(args.Contains("--help")){Console.WriteLine("wo-tester-cli --project RUTA --godot GODOT.exe --mode quick|complete|failed --speed 1|2|5|10 [--home RUTA]");return 0;}
+     if(args.Contains("--help")){
+      Console.WriteLine("wo-tester-cli --cli --mode quick|complete|failed --project RUTA --godot GODOT.exe [--speed 1|2|5|10]");
+      Console.WriteLine("wo-tester-cli --cli --mode android [--adb ADB.exe] [--apk WO.apk] [--package PAQUETE] [--serial SERIE]");
+      Console.WriteLine("Ambos modos admiten [--timeout SEGUNDOS] y [--home RUTA].");return 0;
+     }
      var cancel=new CancellationTokenSource();Console.CancelKeyPress+=(s,e)=>{e.Cancel=true;cancel.Cancel();};
-     using(var projectLock=Lock(options.Project)){
+     using(var projectLock=options.Mode=="android"?null:Lock(options.Project)){
       var runner=new Runner();runner.OnResult=r=>Console.WriteLine("["+r.Label+"] "+r.Name);
       runner.OnProgress=(t,d,n)=>Console.WriteLine("("+d+"/"+n+") "+t);
       var report=runner.Run(options,cancel.Token);
       Console.WriteLine("REPORT="+Path.Combine(report.Folder,"report.html"));
       Console.WriteLine("PASS="+report.Passed+" FAIL="+report.Failed+" PENDING="+report.Pending+" STATE="+report.State);
-      return report.State=="COMPLETED"?(report.Failed>0?1:0):2;
+      return report.ExitCode;
      }
     }
     if(args.Contains("--preview")){
@@ -67,11 +81,13 @@ namespace WOTester {
    }
   }
   public static FileStream Lock(string project) {
-   string path=Scanner.NormalizeProject(project).ToLowerInvariant();
-   byte[] digest;using(var sha=System.Security.Cryptography.SHA256.Create())digest=sha.ComputeHash(System.Text.Encoding.UTF8.GetBytes(path));
+   return LockTarget(Scanner.NormalizeProject(project).ToLowerInvariant());
+  }
+  public static FileStream LockTarget(string target) {
+   byte[] digest;using(var sha=System.Security.Cryptography.SHA256.Create())digest=sha.ComputeHash(System.Text.Encoding.UTF8.GetBytes(target));
    string dir=Path.Combine(Product.Home,"locks");Directory.CreateDirectory(dir);
    try{return new FileStream(Path.Combine(dir,BitConverter.ToString(digest)+".lock"),FileMode.OpenOrCreate,FileAccess.ReadWrite,FileShare.None);}
-   catch(IOException){throw new IOException("Ya hay una revisión de este proyecto en curso. Esperá a que termine o detenela desde su ventana.");}
+   catch(IOException){throw new IOException("Ya hay una revisión de este proyecto o dispositivo en curso. Esperá a que termine o detenela desde su ventana.");}
   }
  }
  public sealed class Desktop {
@@ -90,6 +106,8 @@ namespace WOTester {
    Click("MinButton",()=>Window.WindowState=WindowState.Minimized);Click("MaxButton",ToggleMax);Click("CloseButton",()=>Window.Close());
    Click("NavDashboard",()=>Page("Dashboard"));Click("NavHistory",()=>{RefreshHistory();Page("HistoryPage");});Click("NavSettings",()=>Page("SettingsPage"));Click("NavAbout",()=>Page("AboutPage"));
    Click("ProjectButton",()=>Page("SettingsPage"));Click("BrowseProject",ChooseProject);Click("BrowseGodot",ChooseGodot);
+   Click("BrowseAdb",()=>ChooseFile("AdbPath","Elegí adb.exe","Android Debug Bridge|adb.exe"));
+   Click("BrowseApk",()=>ChooseFile("ApkPath","Elegí el APK de WO Definitive","Paquete Android|*.apk"));
    Click("SaveSettings",Save);Click("StartButton",()=>Start());Click("StopButton",Stop);
    Click("ReportButton",()=>OpenCurrent());Click("RefreshHistory",RefreshHistory);
    Click("OpenHistoryReport",()=>{var r=Get<DataGrid>("HistoryGrid").SelectedItem as Report;if(r!=null)Open(Path.Combine(r.Folder,"report.html"));});
@@ -99,10 +117,14 @@ namespace WOTester {
    Click("DocsButton",()=>{string p=Path.Combine(AppDomain.CurrentDomain.BaseDirectory,"GUIA-DE-USO.md");if(File.Exists(p))Open(p);else Open("https://github.com/FedericoViceconte/WO-Tester#readme");});
    Click("CopyButton",()=>{var r=Selected();if(r!=null)Clipboard.SetText(Reports.Markdown(r));});
    Click("LogButton",()=>{var r=Selected();if(r!=null&&current!=null&&!String.IsNullOrEmpty(r.Log))Open(Path.Combine(current.Folder,Path.GetFileName(r.Log)));});
+   Click("ScreenshotButton",()=>{var r=Selected();if(r!=null&&current!=null&&!String.IsNullOrEmpty(r.Screenshot))Open(Path.Combine(current.Folder,Path.GetFileName(r.Screenshot)));});
    Get<TextBox>("ProjectPath").Text=options.Project;Get<TextBox>("GodotPath").Text=options.Godot;
+   Get<TextBox>("AdbPath").Text=options.Adb;Get<TextBox>("ApkPath").Text=options.Apk;Get<TextBox>("SerialBox").Text=options.AndroidSerial;
+   Select("PackageBox",options.AndroidPackage);
    Get<TextBox>("TimeoutBox").Text=options.TimeoutSeconds.ToString();Get<TextBox>("SeedBox").Text=options.Seed.ToString();
    Get<CheckBox>("AutoRunBox").IsChecked=options.AutoRun;Get<CheckBox>("VisibleBox").IsChecked=options.Visible;
    Select("ModeBox",options.Mode);Select("SpeedBox",options.Speed.ToString());Get<ComboBox>("FilterBox").SelectedIndex=0;
+   Get<ComboBox>("ModeBox").SelectionChanged+=async(s,e)=>await RefreshInventory();
    Get<DataGrid>("ResultsGrid").ItemsSource=results;
    Get<DataGrid>("ResultsGrid").SizeChanged+=(s,e)=>SizeColumns();
    CollectionViewSource.GetDefaultView(results).Filter=Filter;
@@ -115,8 +137,8 @@ namespace WOTester {
    Window.Loaded+=async(s,e)=>{
     await RefreshInventory();
     if(!String.IsNullOrEmpty(loadReport)&&File.Exists(loadReport)){ShowReport(Product.Read<Report>(loadReport));return;}
-    var previous=Reports.Latest(options.Project);if(previous!=null)ShowReport(previous);
-    if(!noAutorun&&options.AutoRun&&File.Exists(options.Godot)&&File.Exists(Path.Combine(options.Project??"","project.godot"))){await Task.Delay(800);Start();}
+    var previous=options.Mode=="android"?Reports.History().FirstOrDefault(r=>r.Mode=="android"&&r.State!="RUNNING"):Reports.Latest(options.Project);if(previous!=null)ShowReport(previous);
+    if(!noAutorun&&options.AutoRun&&options.Mode!="android"&&File.Exists(options.Godot)&&File.Exists(Path.Combine(options.Project??"","project.godot"))){await Task.Delay(800);if(Tag("ModeBox")!="android")Start();}
    };
   }
   public void RenderPreview(string path,string page,string reportPath){
@@ -142,28 +164,50 @@ namespace WOTester {
   }
   void ChooseProject(){var dialog=new OpenFileDialog{Title="Elegí project.godot de WO Definitive",Filter="Proyecto Godot|project.godot",FileName="project.godot"};if(dialog.ShowDialog(Window)==true)Get<TextBox>("ProjectPath").Text=Path.GetDirectoryName(dialog.FileName);}
   void ChooseGodot(){var dialog=new OpenFileDialog{Title="Elegí el ejecutable de Godot 4",Filter="Ejecutable de Godot|*.exe",FileName="Godot_v4.7.2-stable_win64_console.exe"};if(dialog.ShowDialog(Window)==true)Get<TextBox>("GodotPath").Text=dialog.FileName;}
-  void ReadOptions(){
-   options.Project=Scanner.NormalizeProject(Get<TextBox>("ProjectPath").Text);
+  void ChooseFile(string field,string title,string filter){
+   var dialog=new OpenFileDialog{Title=title,Filter=filter};
+   if(dialog.ShowDialog(Window)==true)Get<TextBox>(field).Text=dialog.FileName;
+  }
+  void ReadOptions(bool starting){
+   options.Mode=Tag("ModeBox");
+   options.Project=Get<TextBox>("ProjectPath").Text.Trim().Trim('"');
    options.Godot=Get<TextBox>("GodotPath").Text.Trim().Trim('"');
-   if(!File.Exists(options.Godot))throw new ArgumentException("Elegí el ejecutable de Godot 4.");
+   if(starting&&options.Mode!="android"){
+    options.Project=Scanner.NormalizeProject(options.Project);
+    if(!File.Exists(options.Godot))throw new ArgumentException("Elegí el ejecutable de Godot 4.");
+   }
+   options.Adb=Get<TextBox>("AdbPath").Text.Trim().Trim('"');options.Apk=Get<TextBox>("ApkPath").Text.Trim().Trim('"');
+   options.AndroidPackage=Tag("PackageBox");options.AndroidSerial=Get<TextBox>("SerialBox").Text.Trim();
    int timeout,seed;if(!Int32.TryParse(Get<TextBox>("TimeoutBox").Text,out timeout)||timeout<10||timeout>1800)throw new ArgumentException("El tiempo máximo debe estar entre 10 y 1800 segundos.");
    if(!Int32.TryParse(Get<TextBox>("SeedBox").Text,out seed))throw new ArgumentException("La semilla debe ser un número entero.");
-   options.TimeoutSeconds=timeout;options.Seed=seed;options.Mode=Tag("ModeBox");options.Speed=Int32.Parse(Tag("SpeedBox"));
+   options.TimeoutSeconds=timeout;options.Seed=seed;options.Speed=Int32.Parse(Tag("SpeedBox"));
    options.AutoRun=Get<CheckBox>("AutoRunBox").IsChecked==true;options.Visible=Get<CheckBox>("VisibleBox").IsChecked==true;
   }
-  async void Save(){try{ReadOptions();options.Save();await RefreshInventory();Get<TextBlock>("SettingsFeedback").Text="Configuración guardada. Todo listo para probar."; }catch(Exception e){Error(e.Message);}}
+  async void Save(){try{ReadOptions(false);options.Save();await RefreshInventory();Get<TextBlock>("SettingsFeedback").Text="Configuración guardada."; }catch(Exception e){Error(e.Message);}}
   async Task RefreshInventory(){
+   bool android=Tag("ModeBox")=="android";
+   Get<ComboBox>("SpeedBox").IsEnabled=!android&&!running;
+   Text("ScopeLabel",android?"●  ANDROID POR ADB":"●  PERFILES AISLADOS");
+   Text("ScopeCaption",android?"La revisión usa el paquete y dispositivo seleccionados.":"Cada escenario usa datos propios de prueba.");
+   if(android){
+    Text("GameVersion","ANDROID");
+    Text("ProjectCaption","Un teléfono con depuración USB o un emulador conectado por ADB.");
+    Text("InventoryCaption","Usá un APK o una instalación existente de WO Definitive.");
+    return;
+   }
    try{
-    var i=await Task.Run(()=>Scanner.Scan(options.Project));
+    string project=options.Project;
+    var i=await Task.Run(()=>Scanner.Scan(project));
+    if(Tag("ModeBox")=="android"||project!=options.Project)return;
     Text("GameVersion","VERSIÓN "+i.Version);Text("ProjectCaption",i.Project);
     Text("InventoryCaption",i.Maps.Count+" mapas  ·  "+i.Weapons.Distinct().Count()+" definiciones de armas  ·  "+i.Pets.Count+" mascotas  ·  "+i.Tests.Count+" escenarios");
-   }catch{Text("GameVersion","SIN CONECTAR");Text("ProjectCaption","Elegí el proyecto editable en Configuración.");}
+   }catch{if(Tag("ModeBox")!="android"){Text("GameVersion","SIN CONECTAR");Text("ProjectCaption","Elegí el proyecto editable en Configuración.");Text("InventoryCaption","Mapas, armas y escenarios se detectan automáticamente.");}}
   }
   async void Start(){
    if(running)return;
    FileStream projectLock=null;
    try{
-    ReadOptions();projectLock=Program.Lock(options.Project);options.Save();
+    ReadOptions(true);if(options.Mode!="android")projectLock=Program.Lock(options.Project);options.Save();
     running=true;current=null;results.Clear();RefreshCounters();Page("Dashboard");
     Get<Button>("StartButton").IsEnabled=false;Get<Button>("StopButton").IsEnabled=true;Get<Button>("ReportButton").IsEnabled=false;
     Get<ComboBox>("ModeBox").IsEnabled=false;Get<ComboBox>("SpeedBox").IsEnabled=false;Get<Button>("SaveSettings").IsEnabled=false;
@@ -182,12 +226,12 @@ namespace WOTester {
     if(projectLock!=null)projectLock.Dispose();
     running=false;timer.Stop();if(clock!=null)clock.Stop();
     Get<Button>("StartButton").IsEnabled=true;Get<Button>("StopButton").IsEnabled=false;Get<Button>("SaveSettings").IsEnabled=true;
-    Get<ComboBox>("ModeBox").IsEnabled=true;Get<ComboBox>("SpeedBox").IsEnabled=true;
+    Get<ComboBox>("ModeBox").IsEnabled=true;Get<ComboBox>("SpeedBox").IsEnabled=Tag("ModeBox")!="android";
    }
   }
   void Stop(){if(cancellation!=null)cancellation.Cancel();}
   Result Selected(){return Get<DataGrid>("ResultsGrid").SelectedItem as Result;}
-  void Details(){var r=Selected();if(r==null)return;Text("DetailTitle",r.Name.ToUpperInvariant());Get<TextBox>("DetailText").Text=r.Detail+(String.IsNullOrEmpty(r.Suggestion)?"":"\n\nQué revisar: "+r.Suggestion)+(String.IsNullOrEmpty(r.Reproduce)?"":"\n\nRepetir: "+r.Reproduce);}
+  void Details(){var r=Selected();Get<Button>("ScreenshotButton").Visibility=r!=null&&!String.IsNullOrEmpty(r.Screenshot)?Visibility.Visible:Visibility.Collapsed;if(r==null)return;Text("DetailTitle",r.Name.ToUpperInvariant());Get<TextBox>("DetailText").Text=r.Detail+(String.IsNullOrEmpty(r.Suggestion)?"":"\n\nQué revisar: "+r.Suggestion)+(String.IsNullOrEmpty(r.Reproduce)?"":"\n\nRepetir: "+r.Reproduce);}
   bool Filter(object value){var r=value as Result;if(r==null)return false;string q=Get<TextBox>("SearchBox").Text??"",tag=Tag("FilterBox");return (tag=="all"||tag==""||tag==r.Status||(tag=="pending"&&r.Status!="PASS"&&r.Status!="FAIL"))&&(r.Name+" "+r.Category+" "+r.Detail).IndexOf(q,StringComparison.OrdinalIgnoreCase)>=0;}
   void RefreshFilter(){if(Get<DataGrid>("ResultsGrid").ItemsSource!=null)CollectionViewSource.GetDefaultView(results).Refresh();}
   void RefreshCounters(){Text("PassedCount",results.Count(x=>x.Status=="PASS").ToString());Text("FailedCount",results.Count(x=>x.Status=="FAIL").ToString());Text("PendingCount",results.Count(x=>x.Status!="PASS"&&x.Status!="FAIL").ToString());Text("ChecksCount",results.Sum(x=>x.Checks).ToString());Get<StackPanel>("EmptyState").Visibility=results.Count==0?Visibility.Visible:Visibility.Collapsed;}

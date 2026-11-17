@@ -1,5 +1,11 @@
 # Cambios
 
+## 1.1.0
+
+- Revisión de APK e instalaciones de WO para Android desde el panel de Windows y la CLI.
+- Arranque, captura, registros de Godot, cierres, ANR y protocolo de la escena QA interna.
+- Las revisiones de escritorio indican que quedaron incompletas cuando un escenario se bloquea.
+
 ## 1.0.0 · 5 de noviembre de 2026
 
 Primera versión de WO Tester para Windows.
